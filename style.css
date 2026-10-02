@@ -200,9 +200,18 @@ h2 { font-size: 1.15rem; margin: 0; }
 }
 .campo-mini { max-width: 140px; }
 
-.grade-campos { display: grid; gap: 12px; grid-template-columns: 1fr; }
+/* Campos de data: o Safari do iPhone dá uma largura mínima própria ao campo
+   e ignora o width: 100%, fazendo ele vazar pra direita. */
+.campo input, .campo select { min-width: 0; max-width: 100%; }
+input[type="date"] { display: block; }
+input[type="date"]::-webkit-date-and-time-value { text-align: left; }
+@supports (-webkit-touch-callout: none) {
+  input[type="date"] { -webkit-appearance: none; appearance: none; }
+}
+
+.grade-campos { display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr); }
 @media (min-width: 640px) {
-  .grade-campos { grid-template-columns: 1fr 1fr; }
+  .grade-campos { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .campo-largo { grid-column: 1 / -1; }
 }
 

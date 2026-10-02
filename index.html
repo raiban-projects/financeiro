@@ -109,6 +109,16 @@
         </table>
         <p class="dica">Pelo vencimento, dentro do mês. "Falta" é o que ainda está em aberto.</p>
       </div>
+      <div class="painel" id="i-previsao-painel" hidden>
+        <h2 class="titulo-secao">Próximos meses</h2>
+        <p class="frase-resumo" id="i-previsao-frase"></p>
+        <table class="tabela-resumo tabela-previsao">
+          <thead><tr><th class="moeda">em R$</th><th>Entra</th><th>Sai</th><th>Fim do mês</th></tr></thead>
+          <tbody id="i-previsao"></tbody>
+        </table>
+        <button type="button" class="link" id="i-previsao-mais">Ver 12 meses</button>
+        <p class="dica">Parte do saldo atual e soma tudo que está lançado em aberto: salário e contas fixas, parcelas e faturas.</p>
+      </div>
       <div class="painel" id="i-atraso-painel" hidden>
         <h2 class="titulo-secao titulo-alerta" id="i-atraso-titulo">Em atraso</h2>
         <ul id="i-atraso" class="lista"></ul>
@@ -120,6 +130,7 @@
       <div class="painel" id="i-cartoes-painel" hidden>
         <h2 class="titulo-secao">Cartões</h2>
         <ul id="i-cartoes" class="lista"></ul>
+        <ul id="i-limites" class="limites"></ul>
       </div>
     </section>
 
@@ -162,6 +173,7 @@
           <label class="campo" id="l-cartao-wrap" hidden>
             <span>Cartão</span>
             <select id="l-cartao"></select>
+            <small class="limite-dica" id="l-cartao-limite"></small>
           </label>
           <p class="aviso campo-largo" id="l-sem-cartao" hidden>
             Nenhum cartão cadastrado. <button type="button" class="link" id="l-ir-cartoes">Cadastrar cartão</button>
@@ -220,7 +232,10 @@
           <label><input type="radio" name="c-lado" value="receita"><span>Receber</span></label>
           <label><input type="radio" name="c-lado" value="tudo"><span>Tudo</span></label>
         </div>
-        <button class="btn" id="btn-csv-contas" type="button">Exportar CSV</button>
+        <div class="botoes-topo">
+          <button class="btn" id="btn-selecionar" type="button">Selecionar</button>
+          <button class="btn" id="btn-csv-contas" type="button">Exportar CSV</button>
+        </div>
       </header>
       <div class="chips" role="radiogroup" aria-label="Situação">
         <label><input type="radio" name="c-situacao" value="aberto" checked><span>Em aberto</span></label>
@@ -236,7 +251,7 @@
           </label>
           <label class="campo"><span>Onde / quem</span><select id="c-pessoa"></select></label>
           <label class="campo"><span>Categoria</span><select id="c-categoria"></select></label>
-          <label class="campo"><span>Buscar</span><input type="search" id="c-busca" maxlength="100" placeholder="Descrição, pessoa ou observação" autocomplete="off"></label>
+          <label class="campo"><span>Buscar</span><input type="search" id="c-busca" maxlength="100" placeholder="Descrição, pessoa, obs." title="Procura na descrição, em Onde / quem e na observação" autocomplete="off"></label>
         </div>
         <button type="button" class="link" id="c-limpar">Limpar filtros</button>
       </details>
@@ -254,6 +269,16 @@
       </div>
       <p class="total-lista" id="c-total"></p>
       <ul id="lista-contas" class="lista"></ul>
+      <div class="barra-selecao" id="c-barra" hidden>
+        <div class="barra-info">
+          <strong id="c-sel-info">Toque nas parcelas pra selecionar</strong>
+          <button type="button" class="link" id="c-sel-todas">Marcar todas da lista</button>
+        </div>
+        <div class="barra-acoes">
+          <button type="button" class="btn" id="c-sel-cancelar">Cancelar</button>
+          <button type="button" class="btn btn-primario" id="c-sel-baixar" disabled>Dar baixa</button>
+        </div>
+      </div>
     </section>
 
     <!-- -------------------------- RELATÓRIOS --------------------------- -->
@@ -319,6 +344,7 @@
               <input id="cartao-nome" maxlength="60" placeholder="Nome (ex.: Nubank)" required aria-label="Nome do cartão">
               <label class="mini">Fecha dia <input type="number" id="cartao-fecha" min="1" max="31" required inputmode="numeric"></label>
               <label class="mini">Vence dia <input type="number" id="cartao-vence" min="1" max="31" required inputmode="numeric"></label>
+              <label class="mini">Limite <input id="cartao-limite" inputmode="decimal" placeholder="opcional" autocomplete="off"></label>
               <button class="btn btn-primario" type="submit">Adicionar</button>
             </form>
             <ul id="lista-cartoes" class="lista-simples"></ul>
@@ -349,12 +375,32 @@
         </div>
         <p class="dica" id="backup-ultimo"></p>
       </div>
-      <div class="painel conta-usuario">
-        <div class="conta-info">
-          <h2 class="titulo-secao">Sua conta</h2>
-          <p class="dica" id="conta-email"></p>
+      <div class="painel">
+        <div class="conta-usuario">
+          <div class="conta-info">
+            <h2 class="titulo-secao">Sua conta</h2>
+            <p class="dica" id="conta-email"></p>
+          </div>
+          <div class="botoes-topo">
+            <button class="btn" id="btn-trocar-senha" type="button">Trocar senha</button>
+            <button class="btn btn-perigo" id="btn-sair-conta" type="button">Sair</button>
+          </div>
         </div>
-        <button class="btn btn-perigo" id="btn-sair-conta" type="button">Sair</button>
+        <form id="form-senha" class="bloco" hidden novalidate>
+          <h3>Trocar senha</h3>
+          <input type="email" id="senha-usuario" autocomplete="username" hidden>
+          <div class="grade-campos">
+            <label class="campo campo-largo"><span>Senha atual</span><input type="password" id="senha-atual" autocomplete="current-password" required></label>
+            <label class="campo"><span>Nova senha</span><input type="password" id="senha-nova" autocomplete="new-password" minlength="8" required></label>
+            <label class="campo"><span>Repita a nova senha</span><input type="password" id="senha-nova2" autocomplete="new-password" minlength="8" required></label>
+          </div>
+          <p class="dica">Pelo menos 8 caracteres. Use uma senha que você não usa em nenhum outro lugar.</p>
+          <div class="modal-acoes">
+            <span class="espaco"></span>
+            <button type="button" class="btn" id="senha-cancelar">Cancelar</button>
+            <button type="submit" class="btn btn-primario" id="senha-salvar">Salvar nova senha</button>
+          </div>
+        </form>
       </div>
     </section>
   </main>
@@ -412,6 +458,7 @@
     <div class="modal-acoes" id="mp-acoes">
       <button type="button" class="btn btn-perigo" id="mp-excluir">Excluir</button>
       <button type="button" class="btn" id="mp-editar">Editar</button>
+      <button type="button" class="btn" id="mp-repetir">Lançar de novo</button>
       <span class="espaco"></span>
       <button type="button" class="btn" data-fechar>Fechar</button>
       <button type="button" class="btn btn-primario" id="mp-baixar">Pagar</button>
@@ -460,6 +507,43 @@
       <button value="proximas" class="btn btn-perigo" id="mx-proximas">Esta e as próximas</button>
       <button value="tudo" class="btn btn-perigo" id="mx-tudo">O lançamento inteiro</button>
       <button value="nao" class="btn">Cancelar</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Editar cartão -->
+<dialog id="modal-cartao" class="modal modal-pequeno">
+  <form id="mc-form" class="modal-corpo" novalidate>
+    <h2>Editar cartão</h2>
+    <div class="grade-campos">
+      <label class="campo campo-largo"><span>Nome</span><input id="mc-nome" maxlength="60" required></label>
+      <label class="campo"><span>Fecha dia</span><input type="number" id="mc-fecha" min="1" max="31" inputmode="numeric" required></label>
+      <label class="campo"><span>Vence dia</span><input type="number" id="mc-vence" min="1" max="31" inputmode="numeric" required></label>
+      <label class="campo campo-largo"><span>Limite (opcional)</span><input id="mc-limite" inputmode="decimal" autocomplete="off"></label>
+    </div>
+    <p class="dica">Mudar o fechamento ou o vencimento vale pras próximas compras. As que já estão lançadas ficam nas faturas onde estão.</p>
+    <div class="modal-acoes">
+      <span class="espaco"></span>
+      <button type="button" class="btn" data-fechar>Cancelar</button>
+      <button type="submit" class="btn btn-primario" id="mc-salvar">Salvar</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Baixa em lote -->
+<dialog id="modal-lote" class="modal modal-pequeno">
+  <form id="ml-form" class="modal-corpo" novalidate>
+    <h2>Dar baixa nas selecionadas</h2>
+    <p class="frase-resumo" id="ml-resumo"></p>
+    <div class="grade-campos">
+      <label class="campo"><span>Data</span><input type="date" id="ml-data" required></label>
+      <label class="campo"><span>Forma de pagamento usada</span><select id="ml-forma"></select></label>
+    </div>
+    <p class="dica">Cada parcela é baixada com o próprio valor. Se alguma teve juros ou desconto, dê baixa nela separadamente.</p>
+    <div class="modal-acoes">
+      <span class="espaco"></span>
+      <button type="button" class="btn" data-fechar>Cancelar</button>
+      <button type="submit" class="btn btn-primario" id="ml-confirmar">Confirmar</button>
     </div>
   </form>
 </dialog>

@@ -71,7 +71,9 @@
   function lerValor(txt) {
     let s = String(txt ?? "").trim().replace(/R\$|\s/g, "");
     if (!s) return NaN;
+    // "1.250,00" e também "2.000" (ponto de milhar sem centavos) viram 1250 e 2000; "12.5" continua 12,50.
     if (s.includes(",")) s = s.replace(/\./g, "").replace(",", ".");
+    else if (/^-?\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, "");
     const v = Number(s);
     return Number.isFinite(v) ? Math.round(v * 100) / 100 : NaN;
   }
@@ -184,6 +186,9 @@
     email: "",
     saldo: null,          // { saldo_inicial, saldo_desde } ou null se ainda não configurado
     editandoSaldo: false,
+    previsaoMeses: 6,       // quantos meses o quadro "Próximos meses" mostra
+    usoCartao: new Map(),   // cartão -> total em aberto (cache do Lançar)
+    selecao: null,          // Set de parcelas marcadas em Contas (modo seleção) ou null
     inicio: { ano: 0, mes: 0 },
     contas: { lado: "despesa", situacao: "aberto", ano: 0, mes: 0, periodo: "mes", pessoa: "", categoria: "", busca: "", base: [], entradas: [] },
     rel: { periodo: "mensal", mes: 0, ano: 0, tipo: "despesa", situacao: "tudo", cacheAno: null, parcelasAno: [] },
@@ -395,6 +400,7 @@
   /** Depois de qualquer alteração: recarrega lançamentos, a tela atual e o contador. */
   async function aposMudanca() {
     estado.rel.cacheAno = null;
+    estado.usoCartao = new Map();
     try { await carregarLancamentos(); } catch (e) { toast(msgErro(e), true); }
     recarregarView();
     if (estado.view !== "inicio" && estado.view !== "contas") atualizarBadge();
@@ -443,6 +449,44 @@
 
   $("#btn-sair").addEventListener("click", () => sb.auth.signOut());
   // No celular o menu lateral não existe: o "Sair" fica em Cadastros > Sua conta.
+  // Trocar senha: confere a senha atual antes, pra quem pegar o celular
+  // desbloqueado não conseguir trocar a senha de ninguém.
+  function fecharFormSenha() {
+    $("#form-senha").hidden = true;
+    $("#btn-trocar-senha").hidden = false;
+    ["#senha-atual", "#senha-nova", "#senha-nova2"].forEach((s) => { $(s).value = ""; });
+  }
+  $("#btn-trocar-senha").addEventListener("click", () => {
+    $("#senha-usuario").value = estado.email;
+    $("#form-senha").hidden = false;
+    $("#btn-trocar-senha").hidden = true;
+    $("#senha-atual").focus();
+  });
+  $("#senha-cancelar").addEventListener("click", fecharFormSenha);
+  $("#form-senha").addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    const atual = $("#senha-atual").value, nova = $("#senha-nova").value, nova2 = $("#senha-nova2").value;
+    if (!atual) { toast("Digite a senha atual.", true); return; }
+    if (nova.length < 8) { toast("A nova senha precisa ter pelo menos 8 caracteres.", true); return; }
+    if (nova !== nova2) { toast("As duas novas senhas não são iguais.", true); return; }
+    if (nova === atual) { toast("A nova senha precisa ser diferente da atual.", true); return; }
+    acao($("#senha-salvar"), async () => {
+      const conferida = await sb.auth.signInWithPassword({ email: estado.email, password: atual });
+      if (conferida.error) {
+        toast(/invalid/i.test(conferida.error.message) ? "Senha atual incorreta." : msgErro(conferida.error), true);
+        return;
+      }
+      const { error } = await sb.auth.updateUser({ password: nova });
+      if (error) {
+        toast(/weak|short|characters/i.test(error.message) ? "Senha muito fraca. Use pelo menos 8 caracteres, misturando letras e números."
+          : /same|different/i.test(error.message) ? "A nova senha precisa ser diferente da atual." : msgErro(error), true);
+        return;
+      }
+      fecharFormSenha();
+      toast("Senha trocada. Use a nova no próximo login.");
+    });
+  });
+
   $("#btn-sair-conta").addEventListener("click", async () => {
     if (await confirmar("Sair da sua conta neste aparelho?", "Sair")) sb.auth.signOut();
   });
@@ -483,6 +527,7 @@
     b.addEventListener("click", () => mostrarView(b.dataset.view)));
 
   function mostrarView(nome) {
+    if (estado.selecao && nome !== "contas") sairSelecao();
     estado.view = nome;
     document.querySelectorAll(".view").forEach((v) => { v.hidden = v.id !== `view-${nome}`; });
     document.querySelectorAll(".menu-item").forEach((b) => b.classList.toggle("ativo", b.dataset.view === nome));
@@ -510,10 +555,11 @@
   // ---------------------------------------------------------------------------
   // Itens de lista (parcela ou fatura)
   // ---------------------------------------------------------------------------
-  function itemEntrada(e, { mostrarTipo = false } = {}) {
+  function itemEntrada(e, { mostrarTipo = false, selecao = null } = {}) {
     if (e.tipo === "fatura") {
       const st = situacaoFatura(e);
-      return h("li", {}, h("button", { class: "item item-clicavel " + (st.classe || ""), type: "button", onclick: () => abrirFatura(e) },
+      return h("li", {}, h("button", { class: "item item-clicavel " + (st.classe || "") + (selecao ? " nao-selecionavel" : ""),
+        type: "button", disabled: !!selecao, onclick: selecao ? null : () => abrirFatura(e) },
         h("span", { class: "item-titulo" }, `Fatura ${e.cartao.nome}`),
         h("span", { class: "item-valor despesa" }, fmtBRL(e.valor),
           h("small", {}, `${e.parcelas.length} ${plural(e.parcelas.length, "lançamento", "lançamentos")}`)),
@@ -527,7 +573,13 @@
     const st = situacaoParcela(p);
     const cat = estado.catPorId.get(lanc.categoria_id)?.nome ?? "";
     const rotulo = rotuloParcela(p);
-    return h("li", {}, h("button", { class: "item item-clicavel " + (st.classe || ""), type: "button", onclick: () => abrirParcela(p) },
+    // Em modo seleção, só dá pra marcar parcela em aberto que não é de cartão (cartão se paga pela fatura).
+    const pode = !p.baixado && !p.cartao_id;
+    const marcado = !!selecao && pode && selecao.has(p.id);
+    const extra = !selecao ? "" : pode ? " selecionavel" + (marcado ? " selecionado" : "") : " nao-selecionavel";
+    return h("li", {}, h("button", { class: "item item-clicavel " + (st.classe || "") + extra, type: "button",
+      disabled: !!selecao && !pode, "aria-pressed": selecao && pode ? String(marcado) : null,
+      onclick: selecao ? (pode ? () => alternarSelecao(p.id) : null) : () => abrirParcela(p) },
       h("span", { class: "item-titulo" }, lanc.descricao || cat),
       h("span", { class: "item-valor " + lanc.tipo }, `${lanc.tipo === "despesa" ? "−" : "+"} ${fmtBRL(valorEfetivo(p))}`,
         rotulo ? h("small", {}, rotulo) : null),
@@ -590,13 +642,14 @@
     if (acertando) $("#i-saldo-valor").focus();
   }
 
+  /** Mostra o saldo e devolve o saldo atual (ou null se não configurado). */
   async function renderSaldo(abertas) {
     const s = estado.saldo;
-    if (!s) { mostrarFormSaldo(false); return; }
-    if (estado.editandoSaldo) return;
+    if (!s) { mostrarFormSaldo(false); return null; }
     let atual;
     try { atual = arredonda(Number(s.saldo_inicial) + await movimentosDesde(s.saldo_desde)); }
-    catch (e) { toast(msgErro(e), true); return; }
+    catch (e) { toast(msgErro(e), true); return null; }
+    if (estado.editandoSaldo) return atual;
     const [a, m] = partesISO(hojeISO());
     const fimMes = dataNoMes(a, m, 31);
     let receber = 0, pagar = 0, cartaoFuturo = 0;
@@ -618,6 +671,71 @@
       `Saldo atual + ${fmtBRL(receber)} a receber − ${fmtBRL(pagar)} a pagar até o fim do mês (inclui o que está em atraso e as faturas que vencem no mês).`;
     $("#i-saldo-cartao").hidden = cartaoFuturo <= 0;
     $("#i-saldo-cartao").textContent = `Já comprometido no cartão pros meses seguintes: ${fmtBRL(cartaoFuturo)}.`;
+    return atual;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Previsão dos próximos meses: parte do saldo atual e soma, mês a mês, tudo
+  // que está em aberto (o mês atual inclui o que já está em atraso).
+  // ---------------------------------------------------------------------------
+  function calcularPrevisao(abertas, saldoAtual, meses = 12) {
+    const [a, m] = partesISO(hojeISO());
+    const linhas = [];
+    let saldo = saldoAtual;
+    for (let i = 0; i < meses; i++) {
+      const ini = dataNoMes(a, m, 1, i), fim = dataNoMes(a, m, 1, i + 1);
+      const doMes = abertas.filter((p) => p.vencimento < fim && (i === 0 || p.vencimento >= ini));
+      const entra = soma(doMes.filter((p) => lancDe(p).tipo === "receita"), valorEfetivo);
+      const sai = soma(doMes.filter((p) => lancDe(p).tipo === "despesa"), valorEfetivo);
+      saldo = arredonda(saldo + entra - sai);
+      linhas.push({ ini, entra, sai, saldo });
+    }
+    return linhas;
+  }
+  function nomeMesCurto(iso) { const [a, m] = partesISO(iso); return `${MESES_CURTOS[m - 1]}/${String(a).slice(2)}`; }
+
+  function renderPrevisao(abertas, saldoAtual) {
+    const painel = $("#i-previsao-painel");
+    painel.hidden = saldoAtual == null;
+    if (painel.hidden) return;
+    const linhas = calcularPrevisao(abertas, saldoAtual);
+    const pior = linhas.reduce((x, y) => (y.saldo < x.saldo ? y : x));
+    const nomePior = `${MESES[partesISO(pior.ini)[1] - 1]} de ${partesISO(pior.ini)[0]}`;
+    $("#i-previsao-frase").textContent = pior.saldo < 0
+      ? `O mês mais apertado é ${nomePior}: a conta fecha em ${fmtBRL(pior.saldo)}.`
+      : `Nenhum mês fica negativo nos próximos 12 meses. O mais apertado é ${nomePior}, fechando em ${fmtBRL(pior.saldo)}.`;
+    $("#i-previsao-frase").className = "frase-resumo " + (pior.saldo < 0 ? "texto-despesa" : "");
+    const mostrar = estado.previsaoMeses;
+    $("#i-previsao").replaceChildren(...linhas.slice(0, mostrar).map((l) => h("tr", { class: l === pior ? "linha-pior" : "" },
+      h("th", {}, nomeMesCurto(l.ini)),
+      h("td", { class: "receita" }, fmtNumero(l.entra)),
+      h("td", { class: "despesa" }, fmtNumero(l.sai)),
+      h("td", { class: l.saldo < 0 ? "despesa" : "" }, fmtNumero(l.saldo)))));
+    $("#i-previsao-mais").textContent = mostrar < 12 ? "Ver 12 meses" : "Ver só 6 meses";
+  }
+  $("#i-previsao-mais").addEventListener("click", () => {
+    estado.previsaoMeses = estado.previsaoMeses < 12 ? 12 : 6;
+    carregarInicio();
+  });
+
+  // ---------------------------------------------------------------------------
+  // Limite do cartão: usado = tudo que está em aberto no cartão (inclusive
+  // parcelas de faturas futuras), como os bancos calculam.
+  // ---------------------------------------------------------------------------
+  function usoDoCartao(cartao, abertas) {
+    const usado = arredonda(soma(abertas.filter((p) => p.cartao_id === cartao.id), valorEfetivo));
+    const limite = cartao.limite != null ? Number(cartao.limite) : null;
+    return { usado, limite, disponivel: limite != null ? arredonda(limite - usado) : null };
+  }
+  function linhaLimite(cartao, uso) {
+    const pct = Math.min(100, Math.max(0, (uso.usado / uso.limite) * 100));
+    const estourou = uso.disponivel < 0;
+    return h("li", { class: estourou ? "estourou" : pct >= 80 ? "perto" : "" },
+      h("div", { class: "limite-topo" },
+        h("strong", {}, cartao.nome),
+        h("span", {}, estourou ? `Passou ${fmtBRL(-uso.disponivel)} do limite` : `${fmtBRL(uso.disponivel)} disponível`)),
+      h("div", { class: "trilho", role: "presentation" }, h("div", { class: "preenchido", style: { width: `${pct}%` } })),
+      h("small", { class: "dica" }, `${fmtBRL(uso.usado)} usado de ${fmtBRL(uso.limite)}`));
   }
 
   $("#i-saldo-acertar").addEventListener("click", () => mostrarFormSaldo(true));
@@ -646,7 +764,7 @@
     atualizarBadge(abertas);
     doMes = doMes.filter(lancDe);
     abertas = abertas.filter(lancDe);
-    renderSaldo(abertas);
+    renderSaldo(abertas).then((atual) => renderPrevisao(abertas, atual));
 
     const linha = (tipo) => {
       const lista = doMes.filter((p) => lancDe(p).tipo === tipo);
@@ -679,8 +797,11 @@
       const futuras = agrupar(abertas.filter((p) => p.cartao_id === c.id && p.vencimento >= hoje));
       return futuras[0];
     }).filter(Boolean);
-    $("#i-cartoes-painel").hidden = faturas.length === 0;
+    const comLimite = estado.cartoes.filter((c) => c.limite != null);
+    $("#i-cartoes-painel").hidden = faturas.length === 0 && comLimite.length === 0;
     listaOuVazio($("#i-cartoes"), faturas, "");
+    $("#i-cartoes").hidden = faturas.length === 0;
+    $("#i-limites").replaceChildren(...comLimite.map((c) => linhaLimite(c, usoDoCartao(c, abertas))));
   }
 
   // ---------------------------------------------------------------------------
@@ -714,8 +835,11 @@
     }));
     $("#lista-cartoes").replaceChildren(...(estado.cartoes.length
       ? estado.cartoes.map((c) => h("li", {},
-          h("span", {}, c.nome, h("small", { class: "dica" }, ` fecha dia ${c.dia_fechamento}, vence dia ${c.dia_vencimento}`)),
-          remover("cartoes", c)))
+          h("span", {}, c.nome, h("small", { class: "dica" },
+            ` fecha dia ${c.dia_fechamento}, vence dia ${c.dia_vencimento}${c.limite != null ? `, limite ${fmtBRL(c.limite)}` : ""}`)),
+          h("span", { class: "li-acoes" },
+            h("button", { class: "btn-remover", type: "button", "aria-label": `Editar ${c.nome}`, onclick: () => abrirCartao(c) }, "Editar"),
+            remover("cartoes", c))))
       : [h("li", { class: "dica" }, "Nenhum cartão ainda.")]));
   }
 
@@ -762,13 +886,49 @@
     const nome = $("#cartao-nome").value.trim();
     const fecha = parseInt($("#cartao-fecha").value, 10);
     const vence = parseInt($("#cartao-vence").value, 10);
+    const limite = lerLimite($("#cartao-limite").value);
     if (!nome) { toast("Digite o nome do cartão.", true); return; }
     if (!(fecha >= 1 && fecha <= 31) || !(vence >= 1 && vence <= 31)) { toast("Dias de fechamento e vencimento devem ser entre 1 e 31.", true); return; }
+    if (limite === undefined) { toast("Limite inválido. Deixe em branco ou digite um valor, ex.: 5.000,00.", true); return; }
     acao(ev.submitter, async () => {
-      await exec(sb.from("cartoes").insert({ nome, dia_fechamento: fecha, dia_vencimento: vence }));
-      $("#cartao-nome").value = ""; $("#cartao-fecha").value = ""; $("#cartao-vence").value = "";
+      await exec(sb.from("cartoes").insert({ nome, dia_fechamento: fecha, dia_vencimento: vence, limite }));
+      $("#cartao-nome").value = ""; $("#cartao-fecha").value = ""; $("#cartao-vence").value = ""; $("#cartao-limite").value = "";
       await aposMudarCadastros();
       toast(`Cartão “${nome}” adicionado.`);
+    });
+  });
+
+  /** Limite opcional: vazio = null; inválido = undefined. */
+  function lerLimite(txt) {
+    if (!String(txt).trim()) return null;
+    const v = lerValor(txt);
+    return v > 0 && v < 10000000 ? v : undefined;
+  }
+
+  const modalCartao = $("#modal-cartao");
+  let cartaoEditando = null;
+  function abrirCartao(c) {
+    cartaoEditando = c;
+    $("#mc-nome").value = c.nome;
+    $("#mc-fecha").value = c.dia_fechamento;
+    $("#mc-vence").value = c.dia_vencimento;
+    $("#mc-limite").value = c.limite != null ? valorParaCampo(c.limite) : "";
+    modalCartao.showModal();
+  }
+  $("#mc-form").addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    const nome = $("#mc-nome").value.trim();
+    const fecha = parseInt($("#mc-fecha").value, 10);
+    const vence = parseInt($("#mc-vence").value, 10);
+    const limite = lerLimite($("#mc-limite").value);
+    if (!nome) { toast("Digite o nome do cartão.", true); return; }
+    if (!(fecha >= 1 && fecha <= 31) || !(vence >= 1 && vence <= 31)) { toast("Dias de fechamento e vencimento devem ser entre 1 e 31.", true); return; }
+    if (limite === undefined) { toast("Limite inválido. Deixe em branco ou digite um valor, ex.: 5.000,00.", true); return; }
+    acao($("#mc-salvar"), async () => {
+      await exec(sb.from("cartoes").update({ nome, dia_fechamento: fecha, dia_vencimento: vence, limite }).eq("id", cartaoEditando.id));
+      modalCartao.close();
+      await aposMudarCadastros();
+      toast(`Cartão “${nome}” atualizado.`);
     });
   });
 
@@ -843,7 +1003,36 @@
     atualizarPrevia();
   }
 
+  /** Mostra quanto ainda tem de limite no cartão escolhido e avisa se a compra passa. */
+  async function atualizarLimiteLancar() {
+    const alvo = $("#l-cartao-limite");
+    const { dados, ehCartao } = lancamentoDoForm();
+    const cartao = ehCartao ? estado.cartaoPorId.get(dados.cartao_id) : null;
+    if (!cartao || cartao.limite == null) { alvo.textContent = ""; alvo.className = "limite-dica"; return; }
+    if (!estado.usoCartao.has(cartao.id)) {
+      try {
+        const abertas = await exec(sb.from("parcelas").select("*").eq("cartao_id", cartao.id).eq("baixado", false));
+        estado.usoCartao.set(cartao.id, arredonda(soma(abertas, valorEfetivo)));
+      } catch (e) { alvo.textContent = ""; return; }
+    }
+    const disponivel = arredonda(Number(cartao.limite) - estado.usoCartao.get(cartao.id));
+    const compra = dados.valor > 0 ? soma(gerarParcelasSeguro(dados), (p) => p.valor) : 0;
+    const passa = compra > 0 && compra > disponivel;
+    alvo.textContent = disponivel < 0
+      ? `Limite estourado em ${fmtBRL(-disponivel)}.`
+      : `Disponível: ${fmtBRL(disponivel)} de ${fmtBRL(cartao.limite)}.` + (passa ? " Esta compra passa do disponível." : "");
+    alvo.className = "limite-dica" + (passa || disponivel < 0 ? " texto-despesa" : "");
+  }
+  /** Parcelas de uma compra pra somar o total (fixo conta só a primeira). */
+  function gerarParcelasSeguro(dados) {
+    try {
+      const ps = gerarParcelas(dados);
+      return dados.condicao === "fixo" ? ps.slice(0, 1) : ps;
+    } catch (e) { return []; }
+  }
+
   function atualizarPrevia() {
+    atualizarLimiteLancar();
     const { dados, ehCartao, condicao, tipo } = lancamentoDoForm();
     const alvo = $("#l-previa");
     const n = dados.total_parcelas;
@@ -924,6 +1113,36 @@
     });
   });
 
+  /** Copia um lançamento pro formulário (data vira hoje) pra lançar de novo. */
+  function lancarDeNovo(l) {
+    mostrarView("lancar");
+    formLancar.querySelector(`input[name="tipo"][value="${l.tipo}"]`).checked = true;
+    formLancar.querySelector(`input[name="condicao"][value="${l.condicao}"]`).checked = true;
+    atualizarFormLancar();
+    if ([...$("#l-forma").options].some((o) => o.value === String(l.forma_pagamento_id))) $("#l-forma").value = String(l.forma_pagamento_id);
+    $("#l-data").value = hojeISO();
+    atualizarFormLancar();
+    if (l.cartao_id && [...$("#l-cartao").options].some((o) => o.value === String(l.cartao_id))) $("#l-cartao").value = String(l.cartao_id);
+    if ([...$("#l-categoria").options].some((o) => o.value === String(l.categoria_id))) $("#l-categoria").value = String(l.categoria_id);
+    if (l.condicao === "parcelado") {
+      $("#l-parcelas").value = l.total_parcelas;
+      formLancar.querySelector(`input[name="valor-modo"][value="${l.valor_modo}"]`).checked = true;
+    }
+    if (l.condicao !== "avista" && !l.cartao_id) {
+      $("#l-intervalo").value = l.intervalo;
+      if (l.intervalo === "dias") $("#l-intervalo-dias").value = l.intervalo_dias;
+    }
+    $("#l-valor").value = valorParaCampo(l.valor);
+    $("#l-descricao").value = l.descricao;
+    $("#l-pessoa").value = l.pessoa;
+    $("#l-obs").value = l.observacao;
+    atualizarFormLancar();
+    window.scrollTo(0, 0);
+    $("#l-valor").focus();
+    $("#l-valor").select();
+    toast(`Copiado de “${l.descricao || "lançamento"}”. Confira o valor e salve.`);
+  }
+
   function carregarRecentes() {
     const recentes = [...estado.lancamentos].sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id - a.id).slice(0, 6);
     const ul = $("#lista-recentes");
@@ -939,7 +1158,7 @@
         ? (l.valor_modo === "total" ? fmtBRL(l.valor) : `${l.total_parcelas}× ${fmtBRL(l.valor)}`)
         : fmtBRL(l.valor);
       const condicao = l.condicao === "fixo" ? "Fixo" : l.condicao === "parcelado" ? `${l.total_parcelas}x` : "À vista";
-      return h("li", {}, h("button", { class: "item item-clicavel", type: "button", onclick: () => abrirLancamento(l) },
+      return h("li", { class: "com-repetir" }, h("button", { class: "item item-clicavel", type: "button", onclick: () => abrirLancamento(l) },
         h("span", { class: "item-titulo" }, l.descricao || cat),
         h("span", { class: "item-valor " + l.tipo }, `${l.tipo === "despesa" ? "−" : "+"} ${valor}`, h("small", {}, condicao)),
         h("span", { class: "item-meta" },
@@ -947,7 +1166,9 @@
           l.descricao ? h("span", {}, cat) : null,
           h("span", {}, cartao ? `${forma} · ${cartao}` : forma),
           l.pessoa ? h("span", {}, l.pessoa) : null),
-      ));
+      ), h("button", { class: "btn-repetir", type: "button", title: "Lançar de novo", "aria-label": `Lançar de novo: ${l.descricao || cat}`,
+        onclick: () => lancarDeNovo(l) },
+        "Repetir"));
     }));
   }
 
@@ -1122,6 +1343,12 @@
       }
       aposMudanca();
     });
+  });
+
+  $("#mp-repetir").addEventListener("click", () => {
+    const lanc = lancDe(estado.parcela);
+    modalP.close();
+    if (lanc) lancarDeNovo(lanc);
   });
 
   $("#mp-ver-fatura").addEventListener("click", async () => {
@@ -1303,8 +1530,85 @@
         baixado: `Nada ${ladoTxt.toLowerCase()} neste mês.`,
         tudo: "Nenhum lançamento neste mês.",
       }[c.situacao];
-    listaOuVazio($("#lista-contas"), c.entradas, vazio, { mostrarTipo: c.lado === "tudo" });
+    if (estado.selecao) {
+      const visiveis = new Set(lista.map((p) => p.id));
+      for (const id of [...estado.selecao]) if (!visiveis.has(id)) estado.selecao.delete(id);
+    }
+    listaOuVazio($("#lista-contas"), c.entradas, vazio, { mostrarTipo: c.lado === "tudo", selecao: estado.selecao });
+    atualizarBarraSelecao();
   }
+
+  // ---- Seleção e baixa em lote ----
+  function selecionaveis() { return (estado.contas.parcelas || []).filter((p) => !p.baixado && !p.cartao_id); }
+  function entrarSelecao() {
+    estado.selecao = new Set();
+    $("#btn-selecionar").hidden = true;
+    renderContas();
+  }
+  function sairSelecao() {
+    estado.selecao = null;
+    $("#btn-selecionar").hidden = false;
+    $("#c-barra").hidden = true;
+    if (estado.view === "contas") renderContas();
+  }
+  function alternarSelecao(id) {
+    if (estado.selecao.has(id)) estado.selecao.delete(id); else estado.selecao.add(id);
+    renderContas();
+  }
+  function atualizarBarraSelecao() {
+    const barra = $("#c-barra");
+    barra.hidden = !estado.selecao;
+    if (!estado.selecao) return;
+    const marcadas = (estado.contas.parcelas || []).filter((p) => estado.selecao.has(p.id));
+    $("#c-sel-info").textContent = marcadas.length
+      ? `${marcadas.length} ${plural(marcadas.length, "selecionada", "selecionadas")} · ${fmtBRL(soma(marcadas, valorEfetivo))}`
+      : "Toque nas parcelas pra selecionar";
+    $("#c-sel-baixar").disabled = marcadas.length === 0;
+    const todas = selecionaveis();
+    $("#c-sel-todas").hidden = todas.length === 0;
+    $("#c-sel-todas").textContent = todas.length && todas.every((p) => estado.selecao.has(p.id)) ? "Desmarcar todas" : "Marcar todas da lista";
+  }
+  $("#btn-selecionar").addEventListener("click", entrarSelecao);
+  $("#c-sel-cancelar").addEventListener("click", sairSelecao);
+  $("#c-sel-todas").addEventListener("click", () => {
+    const todas = selecionaveis();
+    const tudoMarcado = todas.every((p) => estado.selecao.has(p.id));
+    for (const p of todas) { if (tudoMarcado) estado.selecao.delete(p.id); else estado.selecao.add(p.id); }
+    renderContas();
+  });
+
+  const modalLote = $("#modal-lote");
+  $("#c-sel-baixar").addEventListener("click", () => {
+    const marcadas = (estado.contas.parcelas || []).filter((p) => estado.selecao?.has(p.id));
+    if (!marcadas.length) return;
+    const pagar = soma(marcadas.filter((p) => lancDe(p).tipo === "despesa"), valorEfetivo);
+    const receber = soma(marcadas.filter((p) => lancDe(p).tipo === "receita"), valorEfetivo);
+    const partes = [];
+    if (pagar) partes.push(`${fmtBRL(pagar)} a pagar`);
+    if (receber) partes.push(`${fmtBRL(receber)} a receber`);
+    $("#ml-resumo").textContent = `${marcadas.length} ${plural(marcadas.length, "parcela", "parcelas")}: ${partes.join(" e ")}.`;
+    $("#ml-data").value = hojeISO();
+    preencherSelect($("#ml-forma"), formasImediatas(), formaSugerida());
+    modalLote.showModal();
+  });
+  $("#ml-form").addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    const data = $("#ml-data").value;
+    if (!data) { toast("Escolha a data.", true); return; }
+    const ids = [...estado.selecao];
+    acao($("#ml-confirmar"), async () => {
+      for (let i = 0; i < ids.length; i += 100) {
+        await exec(sb.from("parcelas").update({
+          baixado: true, data_baixa: data, valor_baixa: null, forma_baixa_id: Number($("#ml-forma").value) || null,
+        }).in("id", ids.slice(i, i + 100)).eq("baixado", false));
+      }
+      modalLote.close();
+      estado.selecao = null;
+      $("#btn-selecionar").hidden = false;
+      toast(`Baixa feita em ${ids.length} ${plural(ids.length, "parcela", "parcelas")}.`);
+      aposMudanca();
+    });
+  });
 
   /** Resumo do que os filtros encontraram: em aberto e baixado, a receber e a pagar. */
   function renderResumoFiltro(filtrado, filtroDeTexto) {

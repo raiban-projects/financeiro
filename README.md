@@ -136,6 +136,25 @@ tentativa de XSS, script externo injetado, envio de dados pra outro site).
 > Nunca coloque a chave **service_role** (*secret key*) no `config.js` nem no
 > GitHub. Ela ignora todas as proteções.
 
+### Trocar a senha
+
+Em **Cadastros → Sua conta → Trocar senha**. O app pede a senha atual (pra que
+ninguém troque num aparelho que ficou aberto), e a nova precisa ter pelo menos 8
+caracteres.
+
+Quem **esqueceu** a senha não consegue trocar por ali, e o painel do Supabase
+não tem botão pra definir uma senha. O jeito é rodar isto no **SQL Editor**,
+trocando a senha e o e-mail:
+
+```sql
+update auth.users
+set encrypted_password = crypt('SENHA-NOVA-AQUI', gen_salt('bf'))
+where email = 'email@da-pessoa.com';
+```
+
+Depois, entre no app e troque de novo por uma senha definitiva. **Não apague o
+usuário pra criar outro:** os lançamentos dele seriam apagados junto.
+
 ### O que fica nas suas mãos
 
 1. 2FA no GitHub e no Supabase (Passo 0).
@@ -178,6 +197,7 @@ Quando uma versão nova muda a estrutura do banco, ela vem com um arquivo na pas
 |---|---|
 | `2026-10-contas-a-pagar-receber.sql` | Troca o modelo pra contas a pagar e receber. **Apaga os lançamentos da versão anterior**; mantém categorias e formas de pagamento. |
 | `2026-10-saldo.sql` | Cria a tabela do saldo em conta. Não apaga nada. |
+| `2026-10-limite-cartao.sql` | Acrescenta o limite (opcional) ao cartão. Não apaga nada. |
 
 Rode a migração **antes** de abrir a versão nova do app.
 
@@ -188,6 +208,9 @@ Users → Add user → Create new user**, coloque o e-mail dela e uma senha, e m
 **Auto Confirm User**. Ela entra no mesmo site. Cada login tem os próprios
 lançamentos, categorias, formas de pagamento e cartões: um não vê nem consegue
 usar nada do outro.
+
+Passe a senha inicial pra ela e peça pra trocar em **Cadastros → Sua conta →
+Trocar senha**. Assim só ela fica sabendo a senha.
 
 ## Plano gratuito do Supabase
 
@@ -215,19 +238,22 @@ O app funciona como um sistema de **contas a pagar e a receber**:
 
 - **Início:** no topo, o **saldo em conta** (veja abaixo). Depois, o mês em
   forma de planilha: receitas e despesas **realizadas**, o que **falta** e o
-  **total previsto**, com o saldo. Embaixo: o que está em atraso, o que vence nos
-  próximos 7 dias e a próxima fatura de cada cartão.
+  **total previsto**, com o saldo. Depois, a **previsão dos próximos meses**.
+  Embaixo: o que está em atraso, o que vence nos próximos 7 dias, a próxima
+  fatura de cada cartão e o **limite** de cada um.
 - **Lançar:** a pagar ou a receber; à vista, parcelado (valor total ou valor de
   cada parcela) ou fixo; intervalo mensal ou a cada X dias. A caixa azul embaixo
   mostra como vai ficar antes de salvar.
 - **Contas:** Pagar, Receber ou Tudo, filtrando por **Em aberto**, **Em atraso**,
   **Pagos/Recebidos** ou **Tudo**. Em **Filtros**: período (um mês ou todos),
   **onde/quem**, **categoria** e **busca** por texto (veja abaixo). Toque num item
-  pra dar baixa, desfazer, editar ou excluir. Exporta CSV.
+  pra dar baixa, desfazer, editar, excluir ou lançar de novo. **Selecionar** dá
+  baixa em várias de uma vez. Exporta CSV.
 - **Relatórios:** por **mês**, **ano** ou **sempre**, despesas ou receitas, com o
   mesmo filtro de situação; total por categoria e gráfico (mês a mês, ou ano a ano
   no "Sempre"). Exporta CSV.
-- **Cadastros:** categorias, cartões, formas de pagamento, backup e sua conta (Sair).
+- **Cadastros:** categorias, cartões (com limite), formas de pagamento, backup e
+  sua conta (Trocar senha e Sair).
 
 ### Saldo em conta
 
@@ -246,6 +272,34 @@ diante:
   ainda vão sair do saldo.
 - **Acertar saldo:** se o app não bater com o banco (tarifa, rendimento...),
   informe o saldo real. Nenhum lançamento é alterado.
+
+### Próximos meses
+
+No Início, a tabela **Próximos meses** parte do saldo atual e soma, mês a mês,
+tudo que já está lançado em aberto: salário e contas fixas, parcelas e faturas.
+A coluna **Fim do mês** é quanto deve sobrar na conta no último dia. O mês atual
+inclui o que está em atraso, então a primeira linha é igual ao "Previsto até o
+fim do mês". A linha destacada é o **mês mais apertado**; se algum mês fecha
+negativo, o aviso em cima fica vermelho. Mostra 6 meses; **Ver 12 meses** abre o
+ano todo.
+
+A previsão só enxerga o que está lançado. Gasto do dia a dia que você ainda não
+lançou (mercado, gasolina) não entra, então deixe uma folga.
+
+### Baixa em lote
+
+Em **Contas**, toque em **Selecionar** e marque as parcelas (ou **Marcar todas
+da lista**, que respeita os filtros). **Dar baixa** pede a data e a forma de
+pagamento e baixa todas de uma vez, cada uma com o próprio valor. Faturas de
+cartão não entram na seleção: elas se pagam inteiras, tocando na fatura. Se
+errar, dá pra desfazer a baixa de cada parcela normalmente.
+
+### Lançar de novo
+
+Pra repetir uma compra parecida, use **Repetir** nos últimos lançamentos (tela
+Lançar) ou **Lançar de novo** no detalhe de qualquer conta. O formulário vem
+preenchido igual, com a data de hoje; confira o valor e salve. O lançamento
+original não muda.
 
 ### Filtros e "quem deve a quem"
 
@@ -293,6 +347,15 @@ fatura.
 Em **Contas → Pagar**, as compras de cada cartão aparecem juntas como **Fatura**.
 Ao pagar a fatura, todas as compras dela recebem baixa de uma vez. Juros,
 anuidade ou outra cobrança: lance como compra no cartão antes de pagar.
+
+**Limite:** em **Cadastros → Cartões**, informe o limite ao cadastrar ou toque
+em **Editar** num cartão que já existe (dá pra mudar também o nome e os dias;
+os dias novos valem só pras próximas compras). O Início mostra quanto do limite
+está usado e quanto sobra, contando **todas** as parcelas em aberto do cartão,
+inclusive as de faturas futuras, como o banco faz. A barra fica amarela a partir
+de 80% e vermelha se passar. Ao lançar no crédito, o app mostra o disponível e
+avisa se a compra passa dele (só avisa, não impede). Pagar a fatura libera o
+limite.
 
 **Pix no crédito:** escolha a forma "Pix no crédito" e o cartão. Se já sabe o
 valor de cada parcela com os juros, escolha "O valor digitado é: De cada parcela".

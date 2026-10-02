@@ -7,13 +7,13 @@
        conversa com o Supabase. Qualquer script injetado ou externo é bloqueado. -->
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://*.supabase.co wss://*.supabase.co; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
   <meta name="referrer" content="strict-origin-when-cross-origin">
-  <title>Caderneta</title>
+  <title>Controle Financeiro</title>
   <meta name="theme-color" content="#16324f">
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="icons/icon-192.png">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-title" content="Caderneta">
+  <meta name="apple-mobile-web-app-title" content="Financeiro">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
@@ -24,7 +24,7 @@
 <!-- ============================== LOGIN ============================== -->
 <section id="tela-login" class="login" hidden>
   <form id="form-login" class="login-card">
-    <h1 class="marca">Caderneta</h1>
+    <h1 class="marca"><span class="marca-selo" aria-hidden="true">R$</span><span class="marca-nome"><span>Controle</span> Financeiro</span></h1>
     <p class="login-sub">Seu controle de receitas e despesas.</p>
     <label class="campo">
       <span>E-mail</span>
@@ -42,7 +42,7 @@
 <!-- ============================== APP ============================== -->
 <div id="app" class="app" hidden>
   <nav class="menu" aria-label="Seções">
-    <div class="menu-marca">Caderneta</div>
+    <div class="menu-marca marca"><span class="marca-selo" aria-hidden="true">R$</span><span class="marca-nome"><span>Controle</span> Financeiro</span></div>
     <button class="menu-item ativo" data-view="lancar">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
       <span>Lançar</span>

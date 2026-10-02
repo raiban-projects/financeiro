@@ -1,5 +1,5 @@
 /* =============================================================================
-   Caderneta - controle financeiro pessoal (Supabase + HTML/JS puro)
+   Controle Financeiro - finanças pessoais (Supabase + HTML/JS puro)
    ============================================================================= */
 (() => {
   "use strict";

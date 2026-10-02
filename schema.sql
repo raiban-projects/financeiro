@@ -45,6 +45,8 @@ create table if not exists public.cartoes (
     nome            text not null check (char_length(nome) between 1 and 60),
     dia_fechamento  smallint not null check (dia_fechamento between 1 and 31),
     dia_vencimento  smallint not null check (dia_vencimento between 1 and 31),
+    -- opcional: pra mostrar quanto do limite está usado e quanto sobra
+    limite          numeric(12, 2) check (limite > 0 and limite < 10000000),
     created_at      timestamptz not null default now(),
     unique (user_id, nome),
     unique (id, user_id)

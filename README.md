@@ -273,6 +273,14 @@ diante:
 - **Acertar saldo:** se o app não bater com o banco (tarifa, rendimento...),
   informe o saldo real. Nenhum lançamento é alterado.
 
+### Aviso ao abrir
+
+Ao abrir o app, se houver **contas vencidas** (a pagar ou a receber) ou **a
+pagar que vencem hoje ou amanhã**, aparece um aviso com a quantidade e o valor.
+**Verificar** leva pra lista certa em Contas, pra dar baixa no que você só
+esqueceu de marcar; **Ignorar** fecha. O aviso aparece uma vez por dia em cada
+aparelho.
+
 ### Próximos meses
 
 No Início, a tabela **Próximos meses** parte do saldo atual e soma, mês a mês,

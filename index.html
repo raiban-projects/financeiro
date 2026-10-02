@@ -559,6 +559,19 @@
   </form>
 </dialog>
 
+<!-- Aviso ao abrir: contas vencidas e a pagar que vencem hoje ou amanhã -->
+<dialog id="modal-aviso" class="modal modal-pequeno">
+  <div class="modal-corpo">
+    <h2 id="av-titulo"></h2>
+    <ul class="aviso-linhas" id="av-linhas"></ul>
+    <div class="modal-acoes">
+      <span class="espaco"></span>
+      <button type="button" class="btn" id="av-ignorar">Ignorar</button>
+      <button type="button" class="btn btn-primario" id="av-verificar" autofocus>Verificar</button>
+    </div>
+  </div>
+</dialog>
+
 <datalist id="sugestoes-pessoa"></datalist>
 <datalist id="sugestoes-descricao"></datalist>
 

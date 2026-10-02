@@ -918,5 +918,47 @@
     if (estado.view === "relatorios") desenharGrafico(estado.rel.linhasAno);
   });
 
+  // ---------------------------------------------------------------------------
+  // Puxar pra atualizar
+  // Só no app instalado na tela inicial: no navegador o próprio celular já faz
+  // isso. Recarrega a página inteira, então também pega versões novas do app.
+  // ---------------------------------------------------------------------------
+  (function puxarParaAtualizar() {
+    const instalado = window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+    if (!instalado) return;
+    const aviso = $("#puxar");
+    const LIMITE = 70;      // quanto o aviso precisa descer pra valer
+    const RESISTENCIA = 0.5; // o aviso anda metade do que o dedo anda
+    let inicioY = null, puxado = 0;
+
+    addEventListener("touchstart", (ev) => {
+      const podePuxar = window.scrollY <= 0 && ev.touches.length === 1 && !document.querySelector("dialog[open]");
+      inicioY = podePuxar ? ev.touches[0].clientY : null;
+      puxado = 0;
+    }, { passive: true });
+
+    addEventListener("touchmove", (ev) => {
+      if (inicioY == null) return;
+      if (window.scrollY > 0) { inicioY = null; aviso.hidden = true; return; }
+      puxado = Math.max(0, ev.touches[0].clientY - inicioY) * RESISTENCIA;
+      const pronto = puxado >= LIMITE;
+      aviso.hidden = puxado < 8;
+      aviso.style.transform = `translate(-50%, ${Math.min(puxado, LIMITE + 20)}px)`;
+      aviso.classList.toggle("pronto", pronto);
+      aviso.textContent = pronto ? "Solte para atualizar" : "Puxe para atualizar";
+    }, { passive: true });
+
+    addEventListener("touchend", () => {
+      if (inicioY == null) return;
+      inicioY = null;
+      if (puxado >= LIMITE) {
+        aviso.textContent = "Atualizando…";
+        location.reload();
+      } else {
+        aviso.hidden = true;
+      }
+    });
+  })();
+
   iniciar();
 })();

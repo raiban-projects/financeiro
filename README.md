@@ -177,6 +177,7 @@ Quando uma versão nova muda a estrutura do banco, ela vem com um arquivo na pas
 | Arquivo | O que faz |
 |---|---|
 | `2026-10-contas-a-pagar-receber.sql` | Troca o modelo pra contas a pagar e receber. **Apaga os lançamentos da versão anterior**; mantém categorias e formas de pagamento. |
+| `2026-10-saldo.sql` | Cria a tabela do saldo em conta. Não apaga nada. |
 
 Rode a migração **antes** de abrir a versão nova do app.
 
@@ -212,18 +213,63 @@ O app funciona como um sistema de **contas a pagar e a receber**:
 
 ### Telas
 
-- **Início:** o mês em forma de planilha: receitas e despesas **realizadas**, o
-  que **falta** e o **total previsto**, com o saldo. Embaixo: o que está em
-  atraso, o que vence nos próximos 7 dias e a próxima fatura de cada cartão.
+- **Início:** no topo, o **saldo em conta** (veja abaixo). Depois, o mês em
+  forma de planilha: receitas e despesas **realizadas**, o que **falta** e o
+  **total previsto**, com o saldo. Embaixo: o que está em atraso, o que vence nos
+  próximos 7 dias e a próxima fatura de cada cartão.
 - **Lançar:** a pagar ou a receber; à vista, parcelado (valor total ou valor de
   cada parcela) ou fixo; intervalo mensal ou a cada X dias. A caixa azul embaixo
   mostra como vai ficar antes de salvar.
-- **Contas:** Pagar ou Receber, filtrando por **Em aberto**, **Em atraso**,
-  **Pagos/Recebidos** ou **Tudo**, mês a mês. Toque num item pra dar baixa,
-  desfazer, editar ou excluir. Exporta CSV.
-- **Relatórios:** por mês ou ano, despesas ou receitas, com o mesmo filtro de
-  situação; total por categoria e gráfico mês a mês. Exporta CSV.
-- **Cadastros:** categorias, cartões, formas de pagamento e sua conta (Sair).
+- **Contas:** Pagar, Receber ou Tudo, filtrando por **Em aberto**, **Em atraso**,
+  **Pagos/Recebidos** ou **Tudo**. Em **Filtros**: período (um mês ou todos),
+  **onde/quem**, **categoria** e **busca** por texto (veja abaixo). Toque num item
+  pra dar baixa, desfazer, editar ou excluir. Exporta CSV.
+- **Relatórios:** por **mês**, **ano** ou **sempre**, despesas ou receitas, com o
+  mesmo filtro de situação; total por categoria e gráfico (mês a mês, ou ano a ano
+  no "Sempre"). Exporta CSV.
+- **Cadastros:** categorias, cartões, formas de pagamento, backup e sua conta (Sair).
+
+### Saldo em conta
+
+Na primeira vez, o Início pergunta **quanto você tem na conta hoje**. Daí em
+diante:
+
+- Dar baixa num **a receber** soma no saldo; dar baixa num **a pagar** subtrai.
+  Vale a data da baixa. Desfazer a baixa desfaz o efeito.
+- Compra no **cartão** só mexe no saldo quando você **paga a fatura**.
+- O saldo pode ficar **negativo** (aparece em vermelho): é o quanto você passou
+  do que tinha.
+- **Previsto até o fim do mês:** saldo atual + o que falta receber − o que falta
+  pagar até o último dia do mês, incluindo o que está em atraso e a fatura que
+  vence no mês. É o número pra não passar do limite.
+- **Já comprometido no cartão:** parcelas de faturas dos meses seguintes, que
+  ainda vão sair do saldo.
+- **Acertar saldo:** se o app não bater com o banco (tarifa, rendimento...),
+  informe o saldo real. Nenhum lançamento é alterado.
+
+### Filtros e "quem deve a quem"
+
+Em **Contas → Filtros**, escolha **Onde / quem** (ex.: Mãe), **Todos os meses**
+e **Tudo** no lado. O resumo mostra, por exemplo, "Mãe te deve R$ 300,00", além
+do total em aberto e baixado a receber e a pagar. Também dá pra filtrar por
+**categoria** e **buscar** texto na descrição, na pessoa ou na observação (sem
+diferenciar maiúscula, minúscula ou acento). Com esses filtros, as compras do
+cartão aparecem uma a uma em vez de agrupadas na fatura.
+
+No Lançar, o campo de pessoa e o de descrição sugerem o que você já usou, pra
+escrever sempre igual ("Mãe" e "mãe" contam como a mesma pessoa).
+
+### Backup
+
+Em **Cadastros → Seus dados**:
+- **Baixar backup completo:** um arquivo `.json` com tudo (lançamentos, parcelas,
+  cartões, categorias, formas de pagamento e saldo).
+- **Baixar planilha (CSV):** todas as parcelas, pra abrir no Excel ou LibreOffice.
+
+Guarde fora do celular (Google Drive, e-mail, PC). O plano grátis do Supabase não
+faz backup automático (o próprio Supabase recomenda exportar os dados por conta
+própria), então essa cópia é a sua garantia. A tela
+mostra a data do último backup baixado naquele aparelho.
 
 ### Formas de pagamento
 

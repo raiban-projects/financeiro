@@ -77,6 +77,9 @@
   }
   function valorParaCampo(v) { return Number(v).toFixed(2).replace(".", ","); }
   function plural(n, s, p) { return n === 1 ? s : p; }
+  /** Texto pra comparar: sem acento, sem espaços nas pontas, minúsculo ("Mãe " = "mae"). */
+  function chaveTexto(t) { return String(t ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase(); }
+  function arredonda(v) { return Math.round(v * 100) / 100; }
   function soma(lista, fn) { return lista.reduce((t, x) => t + fn(x), 0); }
 
   /** Cria elementos: h("div", {class: "x", onclick: fn}, "texto", outroEl) */
@@ -121,7 +124,10 @@
       const s = String(c ?? "");
       return /[;"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     }).join(";")).join("\r\n");
-    const blob = new Blob(["﻿" + conteudo], { type: "text/csv;charset=utf-8" });
+    baixarArquivo(nomeArquivo, "\uFEFF" + conteudo, "text/csv;charset=utf-8");
+  }
+  function baixarArquivo(nomeArquivo, conteudo, tipo) {
+    const blob = new Blob([conteudo], { type: tipo });
     const url = URL.createObjectURL(blob);
     const a = h("a", { href: url, download: nomeArquivo });
     document.body.append(a);
@@ -175,8 +181,11 @@
     categorias: [], formas: [], cartoes: [],
     catPorId: new Map(), formaPorId: new Map(), cartaoPorId: new Map(),
     lancamentos: [], lancPorId: new Map(),
+    email: "",
+    saldo: null,          // { saldo_inicial, saldo_desde } ou null se ainda não configurado
+    editandoSaldo: false,
     inicio: { ano: 0, mes: 0 },
-    contas: { lado: "despesa", situacao: "aberto", ano: 0, mes: 0, entradas: [] },
+    contas: { lado: "despesa", situacao: "aberto", ano: 0, mes: 0, periodo: "mes", pessoa: "", categoria: "", busca: "", base: [], entradas: [] },
     rel: { periodo: "mensal", mes: 0, ano: 0, tipo: "despesa", situacao: "tudo", cacheAno: null, parcelasAno: [] },
     grafico: null,
     parcela: null,  // parcela aberta no modal
@@ -321,6 +330,33 @@
   async function carregarLancamentos() {
     estado.lancamentos = await buscarTodos(() => sb.from("lancamentos").select("*").order("id"));
     estado.lancPorId = new Map(estado.lancamentos.map((l) => [l.id, l]));
+    atualizarSugestoes();
+  }
+  function todasParcelas() {
+    return buscarTodos(() => sb.from("parcelas").select("*").order("vencimento").order("id"));
+  }
+  /** Nomes de pessoa/lugar já usados (sem repetir "Mãe" e "mãe"), em ordem alfabética. */
+  function pessoasConhecidas() {
+    const mapa = new Map();
+    for (const l of estado.lancamentos) {
+      const k = chaveTexto(l.pessoa);
+      if (!k) continue;
+      const nome = l.pessoa.trim();
+      const atual = mapa.get(k);
+      // Prefere a forma escrita com maiúscula ("Mãe" em vez de "mãe").
+      if (!atual || (atual === atual.toLowerCase() && nome !== nome.toLowerCase())) mapa.set(k, nome);
+    }
+    return [...mapa].map(([chave, nome]) => ({ chave, nome })).sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+  }
+  /** Sugestões nos campos de pessoa e descrição, pra escrever sempre igual. */
+  function atualizarSugestoes() {
+    $("#sugestoes-pessoa").replaceChildren(...pessoasConhecidas().map((p) => h("option", { value: p.nome })));
+    const descricoes = new Map();
+    for (const l of [...estado.lancamentos].reverse()) {
+      const k = chaveTexto(l.descricao);
+      if (k && !descricoes.has(k)) descricoes.set(k, l.descricao.trim());
+    }
+    $("#sugestoes-descricao").replaceChildren(...[...descricoes.values()].slice(0, 300).map((d) => h("option", { value: d })));
   }
   function parcelasDoPeriodo(ini, fim) {
     return buscarTodos(() => sb.from("parcelas").select("*").gte("vencimento", ini).lt("vencimento", fim)
@@ -414,7 +450,9 @@
   async function entrar(usuario) {
     if (estado.iniciado) return;
     estado.iniciado = true;
+    estado.email = usuario?.email || "";
     $("#conta-email").textContent = usuario?.email ? `Conectado como ${usuario.email}` : "Conectado";
+    $("#c-filtros").open = window.innerWidth >= 900;
     $("#tela-login").hidden = true;
     $("#app").hidden = false;
     const [a, m] = partesISO(hojeISO());
@@ -429,6 +467,7 @@
       }
       await carregarLancamentos();
       await renovarFixos();
+      await carregarSaldo();
     } catch (e) { toast(msgErro(e), true); }
     atualizarFormLancar();
     // Recarrega a aba ATUAL (não força uma aba): se a pessoa já tocou em outra
@@ -457,7 +496,7 @@
     else if (v === "lancar") carregarRecentes();
     else if (v === "contas") carregarContas();
     else if (v === "relatorios") carregarRelatorio();
-    else if (v === "cadastros") renderCadastros();
+    else if (v === "cadastros") { renderCadastros(); mostrarUltimoBackup(); }
   }
 
   // Ao voltar pro app (ex.: no dia seguinte), renova fixas e atualiza a tela.
@@ -515,6 +554,87 @@
   $("#i-mes-ant").addEventListener("click", () => mudarMes(estado.inicio, -1, carregarInicio));
   $("#i-mes-prox").addEventListener("click", () => mudarMes(estado.inicio, 1, carregarInicio));
 
+  // ---------------------------------------------------------------------------
+  // Saldo em conta
+  //   saldo atual = saldo_inicial + recebimentos − pagamentos (baixas feitas a
+  //   partir de saldo_desde, pela data da baixa). Compra no cartão só mexe no
+  //   saldo quando a fatura é paga.
+  // ---------------------------------------------------------------------------
+  async function carregarSaldo() {
+    const linhas = await exec(sb.from("saldo").select("*").limit(1));
+    estado.saldo = linhas[0] || null;
+  }
+  /** Soma das baixas desde uma data: recebido entra (+), pago sai (−). */
+  async function movimentosDesde(desde) {
+    const baixadas = await buscarTodos(() => sb.from("parcelas").select("*").eq("baixado", true).gte("data_baixa", desde).order("id"));
+    return arredonda(soma(baixadas.filter(lancDe), (p) => (lancDe(p).tipo === "receita" ? 1 : -1) * valorEfetivo(p)));
+  }
+  /** Grava o saldo de forma que o saldo atual fique igual a 'valorAgora'. */
+  async function definirSaldo(valorAgora) {
+    const desde = estado.saldo?.saldo_desde ?? hojeISO();
+    const inicial = arredonda(valorAgora - await movimentosDesde(desde));
+    await exec(sb.from("saldo").upsert({ saldo_inicial: inicial, saldo_desde: desde, updated_at: new Date().toISOString() }, { onConflict: "user_id" }));
+    await carregarSaldo();
+  }
+
+  function mostrarFormSaldo(acertando) {
+    estado.editandoSaldo = acertando;
+    $("#i-saldo-form").hidden = false;
+    $("#i-saldo-info").hidden = true;
+    $("#i-saldo-cancelar").hidden = !acertando;
+    $("#i-saldo-form-titulo").textContent = acertando ? "Quanto você tem na conta agora?" : "Quanto você tem na conta hoje?";
+    $("#i-saldo-form-dica").textContent = acertando
+      ? "O app ajusta o saldo pra bater com o do banco (tarifa, rendimento...). Nenhum lançamento é alterado."
+      : "Daqui pra frente, o que você receber soma e o que pagar subtrai. Pode ser negativo, se estiver no cheque especial.";
+    $("#i-saldo-valor").value = "";
+    if (acertando) $("#i-saldo-valor").focus();
+  }
+
+  async function renderSaldo(abertas) {
+    const s = estado.saldo;
+    if (!s) { mostrarFormSaldo(false); return; }
+    if (estado.editandoSaldo) return;
+    let atual;
+    try { atual = arredonda(Number(s.saldo_inicial) + await movimentosDesde(s.saldo_desde)); }
+    catch (e) { toast(msgErro(e), true); return; }
+    const [a, m] = partesISO(hojeISO());
+    const fimMes = dataNoMes(a, m, 31);
+    let receber = 0, pagar = 0, cartaoFuturo = 0;
+    for (const p of abertas) {
+      const l = lancDe(p);
+      if (!l) continue;
+      if (p.vencimento <= fimMes) { if (l.tipo === "receita") receber += valorEfetivo(p); else pagar += valorEfetivo(p); }
+      else if (p.cartao_id && l.tipo === "despesa") cartaoFuturo += valorEfetivo(p);
+    }
+    const previsto = arredonda(atual + receber - pagar);
+    $("#i-saldo-form").hidden = true;
+    $("#i-saldo-info").hidden = false;
+    $("#i-saldo-atual").textContent = fmtBRL(atual);
+    $("#i-saldo-atual").className = atual < 0 ? "despesa" : "";
+    $("#i-previsto-rotulo").textContent = `Previsto até ${fmtDataCurta(fimMes)}`;
+    $("#i-saldo-previsto").textContent = fmtBRL(previsto);
+    $("#i-saldo-previsto").className = previsto < 0 ? "despesa" : "receita";
+    $("#i-saldo-explica").textContent =
+      `Saldo atual + ${fmtBRL(receber)} a receber − ${fmtBRL(pagar)} a pagar até o fim do mês (inclui o que está em atraso e as faturas que vencem no mês).`;
+    $("#i-saldo-cartao").hidden = cartaoFuturo <= 0;
+    $("#i-saldo-cartao").textContent = `Já comprometido no cartão pros meses seguintes: ${fmtBRL(cartaoFuturo)}.`;
+  }
+
+  $("#i-saldo-acertar").addEventListener("click", () => mostrarFormSaldo(true));
+  $("#i-saldo-cancelar").addEventListener("click", () => { estado.editandoSaldo = false; carregarInicio(); });
+  $("#i-saldo-form").addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    const valor = lerValor($("#i-saldo-valor").value);
+    if (!Number.isFinite(valor) || Math.abs(valor) >= 100000000) { toast("Digite o saldo, por exemplo 1.250,00 ou -300,00.", true); return; }
+    const acertando = estado.editandoSaldo;
+    acao($("#i-saldo-salvar"), async () => {
+      await definirSaldo(valor);
+      estado.editandoSaldo = false;
+      toast(`${acertando ? "Saldo acertado" : "Saldo salvo"}: ${fmtBRL(valor)}.`);
+      carregarInicio();
+    });
+  });
+
   async function carregarInicio() {
     const { ano, mes } = estado.inicio;
     $("#i-mes-titulo").textContent = nomeMes(ano, mes);
@@ -526,6 +646,7 @@
     atualizarBadge(abertas);
     doMes = doMes.filter(lancDe);
     abertas = abertas.filter(lancDe);
+    renderSaldo(abertas);
 
     const linha = (tipo) => {
       const lista = doMes.filter((p) => lancDe(p).tipo === tipo);
@@ -1076,43 +1197,140 @@
   // ---------------------------------------------------------------------------
   // Contas a pagar / a receber
   // ---------------------------------------------------------------------------
+  // Filtros: lado, situação e período mudam o que é buscado; pessoa, categoria
+  // e busca só filtram o que já foi carregado.
   document.querySelectorAll('input[name="c-lado"], input[name="c-situacao"]').forEach((r) =>
-    r.addEventListener("change", carregarContas));
+    r.addEventListener("change", () => { lerFiltrosContas(); carregarContas(); }));
+  $("#c-periodo").addEventListener("change", () => { lerFiltrosContas(); carregarContas(); });
+  ["#c-pessoa", "#c-categoria"].forEach((sel) => $(sel).addEventListener("change", () => { lerFiltrosContas(); renderContas(); }));
+  let timerBusca;
+  $("#c-busca").addEventListener("input", () => {
+    clearTimeout(timerBusca);
+    timerBusca = setTimeout(() => { lerFiltrosContas(); renderContas(); }, 250);
+  });
+  $("#c-limpar").addEventListener("click", () => {
+    Object.assign(estado.contas, { periodo: "mes", pessoa: "", categoria: "", busca: "" });
+    carregarContas();
+  });
   $("#c-mes-ant").addEventListener("click", () => mudarMes(estado.contas, -1, carregarContas));
   $("#c-mes-prox").addEventListener("click", () => mudarMes(estado.contas, 1, carregarContas));
 
-  async function carregarContas() {
+  function lerFiltrosContas() {
     const c = estado.contas;
     c.lado = radio("c-lado");
     c.situacao = radio("c-situacao");
-    $("#c-rotulo-baixado").textContent = c.lado === "despesa" ? "Pagos" : "Recebidos";
-    $("#c-mes-nav").hidden = c.situacao === "atraso";
-    $("#c-mes-titulo").textContent = nomeMes(c.ano, c.mes);
-    let parcelas, abertas;
+    c.periodo = $("#c-periodo").value;
+    c.pessoa = $("#c-pessoa").value;
+    c.categoria = $("#c-categoria").value;
+    c.busca = $("#c-busca").value.trim();
+  }
+
+  /** Monta as opções de pessoa e categoria, mantendo o que estava escolhido. */
+  function preencherFiltrosContas() {
+    const c = estado.contas;
+    const pessoas = pessoasConhecidas();
+    if (c.pessoa && !pessoas.some((p) => p.chave === c.pessoa)) c.pessoa = "";
+    $("#c-pessoa").replaceChildren(h("option", { value: "" }, "Todas"), ...pessoas.map((p) => h("option", { value: p.chave }, p.nome)));
+    $("#c-pessoa").value = c.pessoa;
+    const grupo = (rotulo, tipo) => h("optgroup", { label: rotulo }, ...categoriasDoTipo(tipo).map((cat) => h("option", { value: cat.id }, cat.nome)));
+    if (c.categoria && !estado.catPorId.has(Number(c.categoria))) c.categoria = "";
+    $("#c-categoria").replaceChildren(h("option", { value: "" }, "Todas"), grupo("Despesas", "despesa"), grupo("Receitas", "receita"));
+    $("#c-categoria").value = String(c.categoria);
+    $("#c-periodo").value = c.periodo;
+    $("#c-busca").value = c.busca;
+  }
+
+  async function carregarContas() {
+    const c = estado.contas;
+    preencherFiltrosContas();
+    let abertas;
     try {
       abertas = await parcelasAbertas();
-      parcelas = c.situacao === "atraso" ? abertas
+      c.base = (c.periodo === "todos" || c.situacao === "atraso")
+        ? await todasParcelas()
         : await parcelasDoPeriodo(dataNoMes(c.ano, c.mes, 1), dataNoMes(c.ano, c.mes, 1, 1));
     } catch (e) { toast(msgErro(e), true); return; }
+    c.base = c.base.filter(lancDe);
     atualizarBadge(abertas);
-    const filtro = {
+    renderContas();
+  }
+
+  function renderContas() {
+    const c = estado.contas;
+    const ladoTxt = { despesa: "Pagos", receita: "Recebidos", tudo: "Baixados" }[c.lado];
+    $("#c-rotulo-baixado").textContent = ladoTxt;
+    $("#c-mes-nav").hidden = c.situacao === "atraso" || c.periodo === "todos";
+    $("#c-mes-titulo").textContent = nomeMes(c.ano, c.mes);
+
+    const busca = chaveTexto(c.busca);
+    const passaFiltros = (p) => {
+      const l = lancDe(p);
+      if (c.pessoa && chaveTexto(l.pessoa) !== c.pessoa) return false;
+      if (c.categoria && l.categoria_id !== Number(c.categoria)) return false;
+      if (busca && ![l.descricao, l.pessoa, l.observacao].some((t) => chaveTexto(t).includes(busca))) return false;
+      return true;
+    };
+    const situacao = {
       aberto: (p) => !p.baixado,
       atraso: (p) => emAtraso(p),
       baixado: (p) => p.baixado,
       tudo: () => true,
     }[c.situacao];
-    const daqui = parcelas.filter((p) => lancDe(p)?.tipo === c.lado && filtro(p));
-    c.entradas = agrupar(daqui);
-    c.parcelas = daqui;
-    const total = soma(daqui, valorEfetivo);
-    $("#c-total").textContent = daqui.length ? `${c.entradas.length} ${plural(c.entradas.length, "item", "itens")} · ${fmtBRL(total)}` : "";
-    const vazio = {
-      aberto: c.lado === "despesa" ? "Nada a pagar neste mês." : "Nada a receber neste mês.",
-      atraso: "Nada em atraso.",
-      baixado: c.lado === "despesa" ? "Nada pago neste mês." : "Nada recebido neste mês.",
-      tudo: "Nenhum lançamento neste mês.",
-    }[c.situacao];
-    listaOuVazio($("#lista-contas"), c.entradas, vazio);
+    const filtrado = c.base.filter(passaFiltros);
+    const lista = filtrado.filter((p) => (c.lado === "tudo" || lancDe(p).tipo === c.lado) && situacao(p));
+    // Com filtro de pessoa/categoria/busca, as compras do cartão aparecem uma a uma (não como fatura).
+    const filtroDeTexto = !!(c.pessoa || c.categoria || busca);
+    c.entradas = filtroDeTexto
+      ? lista.map((p) => ({ tipo: "parcela", p, vencimento: p.vencimento, valor: valorEfetivo(p) }))
+          .sort((x, y) => x.vencimento.localeCompare(y.vencimento))
+      : agrupar(lista);
+    c.parcelas = lista;
+
+    const ativos = [c.periodo === "todos", !!c.pessoa, !!c.categoria, !!busca].filter(Boolean).length;
+    $("#c-filtros-qtd").textContent = ativos ? `(${ativos})` : "";
+    $("#c-limpar").hidden = ativos === 0;
+
+    const qtd = `${c.entradas.length} ${plural(c.entradas.length, "item", "itens")}`;
+    $("#c-total").textContent = !lista.length ? "" : c.lado === "tudo" ? qtd : `${qtd} · ${fmtBRL(soma(lista, valorEfetivo))}`;
+
+    renderResumoFiltro(filtrado, filtroDeTexto);
+
+    const vazio = filtroDeTexto || c.periodo === "todos"
+      ? "Nada encontrado com esses filtros."
+      : {
+        aberto: c.lado === "receita" ? "Nada a receber neste mês." : c.lado === "despesa" ? "Nada a pagar neste mês." : "Nada em aberto neste mês.",
+        atraso: "Nada em atraso.",
+        baixado: `Nada ${ladoTxt.toLowerCase()} neste mês.`,
+        tudo: "Nenhum lançamento neste mês.",
+      }[c.situacao];
+    listaOuVazio($("#lista-contas"), c.entradas, vazio, { mostrarTipo: c.lado === "tudo" });
+  }
+
+  /** Resumo do que os filtros encontraram: em aberto e baixado, a receber e a pagar. */
+  function renderResumoFiltro(filtrado, filtroDeTexto) {
+    const c = estado.contas;
+    const painel = $("#c-resumo");
+    painel.hidden = !(filtroDeTexto || c.lado === "tudo");
+    if (painel.hidden) return;
+    const total = (tipo, baixado) => soma(filtrado.filter((p) => lancDe(p).tipo === tipo && p.baixado === baixado), valorEfetivo);
+    const rAberto = total("receita", false), rBaixado = total("receita", true);
+    const pAberto = total("despesa", false), pBaixado = total("despesa", true);
+    $("#c-resumo-corpo").replaceChildren(
+      h("tr", {}, h("th", {}, "A receber"), h("td", { class: "receita" }, fmtNumero(rAberto)), h("td", {}, fmtNumero(rBaixado))),
+      h("tr", {}, h("th", {}, "A pagar"), h("td", { class: "despesa" }, fmtNumero(pAberto)), h("td", {}, fmtNumero(pBaixado))),
+    );
+    const periodo = c.periodo === "todos" || c.situacao === "atraso" ? "somando todos os meses" : `em ${MESES[c.mes - 1]} de ${c.ano}`;
+    const frase = $("#c-frase");
+    if (c.pessoa) {
+      const nome = $("#c-pessoa").selectedOptions[0]?.textContent || "";
+      const partes = [];
+      if (rAberto > 0) partes.push(`${nome} te deve ${fmtBRL(rAberto)}`);
+      if (pAberto > 0) partes.push(`${fmtBRL(pAberto)} a pagar ligado a ${nome}`);
+      const texto = (partes.length ? partes.join(" · ") : `Nada em aberto com ${nome}`) + ` (${periodo}).`;
+      frase.textContent = texto.charAt(0).toUpperCase() + texto.slice(1);
+    } else {
+      frase.textContent = `Em aberto ${periodo}: ${fmtBRL(rAberto)} a receber e ${fmtBRL(pAberto)} a pagar.`;
+    }
   }
 
   $("#btn-csv-contas").addEventListener("click", () => {
@@ -1134,6 +1352,54 @@
         fmtData(p.data_baixa), p.baixado ? fmtNumeroCSV(valorEfetivo(p)) : "", l.observacao];
     })];
   }
+
+  // ---------------------------------------------------------------------------
+  // Backup
+  // ---------------------------------------------------------------------------
+  function mostrarUltimoBackup() {
+    let ultimo = null;
+    try { ultimo = localStorage.getItem("ultimo-backup"); } catch (e) { /* navegador sem armazenamento */ }
+    $("#backup-ultimo").textContent = ultimo
+      ? `Último backup baixado neste aparelho: ${fmtData(ultimo.slice(0, 10))}.`
+      : "Você ainda não baixou um backup neste aparelho.";
+  }
+  function registrarBackup() {
+    try { localStorage.setItem("ultimo-backup", hojeISO()); } catch (e) { /* sem armazenamento: só não mostra a data */ }
+    mostrarUltimoBackup();
+  }
+
+  $("#btn-backup").addEventListener("click", (ev) => acao(ev.currentTarget, async () => {
+    await carregarCadastros();
+    await carregarLancamentos();
+    const [parcelas, saldo] = await Promise.all([
+      buscarTodos(() => sb.from("parcelas").select("*").order("id")),
+      exec(sb.from("saldo").select("*")),
+    ]);
+    const backup = {
+      app: "Controle Financeiro",
+      formato: 1,
+      gerado_em: new Date().toISOString(),
+      usuario: estado.email,
+      contagem: { categorias: estado.categorias.length, formas_pagamento: estado.formas.length, cartoes: estado.cartoes.length,
+        lancamentos: estado.lancamentos.length, parcelas: parcelas.length },
+      categorias: estado.categorias,
+      formas_pagamento: estado.formas,
+      cartoes: estado.cartoes,
+      lancamentos: estado.lancamentos,
+      parcelas,
+      saldo: saldo[0] || null,
+    };
+    baixarArquivo(`backup-controle-financeiro-${hojeISO()}.json`, JSON.stringify(backup, null, 2), "application/json");
+    registrarBackup();
+    toast(`Backup baixado: ${estado.lancamentos.length} lançamentos e ${parcelas.length} parcelas.`);
+  }));
+
+  $("#btn-backup-csv").addEventListener("click", (ev) => acao(ev.currentTarget, async () => {
+    const parcelas = (await todasParcelas()).filter(lancDe);
+    if (!parcelas.length) { toast("Ainda não há lançamentos pra exportar.", true); return; }
+    baixarCSV(`controle-financeiro-tudo-${hojeISO()}.csv`, linhasCSV(parcelas));
+    toast(`Planilha baixada com ${parcelas.length} parcelas.`);
+  }));
 
   // ---------------------------------------------------------------------------
   // Relatórios
@@ -1166,16 +1432,22 @@
     $("#r-ano").value = String(r.ano);
     $("#r-situacao").value = r.situacao;
     $("#r-mes").hidden = r.periodo !== "mensal";
-    if (r.cacheAno !== r.ano) {
+    $("#r-ano").hidden = r.periodo === "sempre";
+    // "Sempre" carrega tudo; mês e ano carregam o ano escolhido.
+    const chave = r.periodo === "sempre" ? "sempre" : r.ano;
+    if (r.cacheAno !== chave) {
       try {
-        r.parcelasAno = (await parcelasDoPeriodo(`${r.ano}-01-01`, `${r.ano + 1}-01-01`)).filter(lancDe);
-        r.cacheAno = r.ano;
+        r.parcelasAno = (r.periodo === "sempre"
+          ? await todasParcelas()
+          : await parcelasDoPeriodo(`${r.ano}-01-01`, `${r.ano + 1}-01-01`)).filter(lancDe);
+        r.cacheAno = chave;
       } catch (e) { toast(msgErro(e), true); return; }
     }
     const prefixoMes = `${r.ano}-${pad(r.mes)}`;
     const doAno = r.parcelasAno.filter((p) => passaSituacao(p, r.situacao));
     const doPeriodo = r.periodo === "mensal" ? doAno.filter((p) => p.vencimento.startsWith(prefixoMes)) : doAno;
-    const periodoTxt = r.periodo === "mensal" ? `${MESES[r.mes - 1]} de ${r.ano}` : String(r.ano);
+    const periodoTxt = r.periodo === "mensal" ? `${MESES[r.mes - 1]} de ${r.ano}`
+      : r.periodo === "anual" ? String(r.ano) : "todo o período";
 
     const receitas = soma(doPeriodo.filter((p) => lancDe(p).tipo === "receita"), valorEfetivo);
     const despesas = soma(doPeriodo.filter((p) => lancDe(p).tipo === "despesa"), valorEfetivo);
@@ -1201,7 +1473,7 @@
     const ul = $("#r-categorias");
     ul.classList.toggle("receita", r.tipo === "receita");
     if (!itens.length) {
-      ul.replaceChildren(h("li", { class: "dica" }, `Nada em ${periodoTxt} com esse filtro.`));
+      ul.replaceChildren(h("li", { class: "dica" }, r.periodo === "sempre" ? "Nada encontrado com esse filtro." : `Nada em ${periodoTxt} com esse filtro.`));
     } else {
       ul.replaceChildren(...itens.map((i) => h("li", {},
         h("span", { class: "cat-nome" }, i.nome),
@@ -1210,21 +1482,31 @@
           h("div", { class: "preenchido", style: { width: `${Math.max(i.pct, 0.5)}%` } })))));
     }
 
-    $("#r-titulo-evolucao").textContent = `Receitas e despesas mês a mês em ${r.ano}`;
-    desenharGrafico(doAno);
+    $("#r-titulo-evolucao").textContent = r.periodo === "sempre" ? "Receitas e despesas ano a ano" : `Receitas e despesas mês a mês em ${r.ano}`;
+    desenharGrafico(doAno, r.periodo === "sempre");
   }
 
-  function desenharGrafico(parcelas) {
+  /** Barras de receitas e despesas: por mês do ano, ou por ano (porAno = true). */
+  function desenharGrafico(parcelas, porAno = false) {
     if (!window.Chart) return;
-    const rec = Array(12).fill(0), desp = Array(12).fill(0);
+    let rotulos, indice;
+    if (porAno) {
+      const anos = [...new Set(parcelas.map((p) => p.vencimento.slice(0, 4)))].sort();
+      rotulos = anos.length ? anos : [String(estado.rel.ano)];
+      indice = (p) => rotulos.indexOf(p.vencimento.slice(0, 4));
+    } else {
+      rotulos = MESES_CURTOS;
+      indice = (p) => Number(p.vencimento.slice(5, 7)) - 1;
+    }
+    const rec = Array(rotulos.length).fill(0), desp = Array(rotulos.length).fill(0);
     for (const p of parcelas) {
-      const m = Number(p.vencimento.slice(5, 7)) - 1;
-      if (lancDe(p).tipo === "receita") rec[m] += valorEfetivo(p); else desp[m] += valorEfetivo(p);
+      const i = indice(p);
+      if (lancDe(p).tipo === "receita") rec[i] += valorEfetivo(p); else desp[i] += valorEfetivo(p);
     }
     const css = getComputedStyle(document.documentElement);
     const cor = (v) => css.getPropertyValue(v).trim();
     const dados = {
-      labels: MESES_CURTOS,
+      labels: rotulos,
       datasets: [
         { label: "Receitas", data: rec, backgroundColor: cor("--serie-receita"), borderRadius: 4, maxBarThickness: 18 },
         { label: "Despesas", data: desp, backgroundColor: cor("--serie-despesa"), borderRadius: 4, maxBarThickness: 18 },
@@ -1254,7 +1536,7 @@
     const u = estado.rel.ultimo;
     if (!u) return;
     const r = estado.rel;
-    const sufixo = r.periodo === "mensal" ? `${r.ano}-${pad(r.mes)}` : `${r.ano}`;
+    const sufixo = r.periodo === "mensal" ? `${r.ano}-${pad(r.mes)}` : r.periodo === "anual" ? `${r.ano}` : "sempre";
     const linhas = [["Categoria", "Valor", "Percentual"],
       ...u.itens.map((i) => [i.nome, fmtNumeroCSV(i.valor), `${i.pct.toFixed(1).replace(".", ",")}%`]),
       [], ["Período", u.periodoTxt], ["Situação", $("#r-situacao").selectedOptions[0].textContent],

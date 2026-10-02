@@ -1,5 +1,12 @@
 /* =============================================================================
    Controle Financeiro - finanças pessoais (Supabase + HTML/JS puro)
+
+   Modelo:
+     lançamento  = a "conta" (a pagar ou a receber): descrição, categoria,
+                   forma de pagamento, à vista / parcelado / fixo
+     parcela     = cada vencimento do lançamento; é nela que se dá baixa
+     fatura      = parcelas do mesmo cartão com o mesmo vencimento; pagar a
+                   fatura dá baixa em todas de uma vez
    ============================================================================= */
 (() => {
   "use strict";
@@ -7,23 +14,22 @@
   // ---------------------------------------------------------------------------
   // Constantes
   // ---------------------------------------------------------------------------
-  const NATUREZAS = [
-    { valor: "normal", titulo: "Normal", dica: "Conta na categoria e no total do mês" },
-    { valor: "credito_informativo", titulo: "Compra no crédito", dica: "Vai pra fatura: só conta na categoria" },
-    { valor: "pagamento_fatura", titulo: "Pagamento de fatura", dica: "Só conta no total do mês" },
-  ];
-  const NATUREZA_CURTA = { normal: "", credito_informativo: "Crédito (fatura)", pagamento_fatura: "Pagto. de fatura" };
-  const DIAS_ALERTA = 5;
+  const DIAS_ALERTA = 5;          // "vence em breve" e contador do menu
+  const HORIZONTE_FIXOS = 365;    // contas fixas ficam lançadas até 1 ano à frente
   const MESES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho",
     "agosto", "setembro", "outubro", "novembro", "dezembro"];
   const MESES_CURTOS = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+  const TIPO_FORMA = { imediata: "Na hora", cartao: "Cartão de crédito", prazo: "A prazo" };
   const CATEGORIAS_PADRAO = [
     ["Salário", "receita"], ["Freelance", "receita"], ["Outras receitas", "receita"],
     ["Alimentação", "despesa"], ["Restaurante", "despesa"], ["Conveniência", "despesa"],
     ["Transporte", "despesa"], ["Moradia", "despesa"], ["Saúde", "despesa"], ["Jogos", "despesa"],
     ["Lazer", "despesa"], ["Assinaturas", "despesa"], ["Educação", "despesa"], ["Outras despesas", "despesa"],
   ].map(([nome, tipo]) => ({ nome, tipo }));
-  const FORMAS_PADRAO = ["Débito", "Crédito", "Pix", "Dinheiro", "Transferência"].map((nome) => ({ nome }));
+  const FORMAS_PADRAO = [
+    ["Pix", "imediata"], ["Débito", "imediata"], ["Dinheiro", "imediata"], ["Transferência", "imediata"],
+    ["Crédito", "cartao"], ["Pix no crédito", "cartao"], ["Boleto", "prazo"],
+  ].map(([nome, tipo]) => ({ nome, tipo }));
 
   // ---------------------------------------------------------------------------
   // Utilidades
@@ -36,14 +42,18 @@
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   }
   function partesISO(iso) { return iso.split("-").map(Number); }
-  /** Soma meses a uma data AAAA-MM-DD, ajustando o dia em meses mais curtos (31 -> 30/28). */
-  function addMesesISO(iso, meses) {
+  function ultimoDia(ano, mes) { return new Date(ano, mes, 0).getDate(); }
+  /** Data do 'dia' no mês (ano, mes + deslocamento), ajustando meses curtos (31 -> 30/28). */
+  function dataNoMes(ano, mes, dia, deslocamento = 0) {
+    const total = mes - 1 + deslocamento;
+    const a = ano + Math.floor(total / 12);
+    const m = ((total % 12) + 12) % 12 + 1;
+    return `${a}-${pad(m)}-${pad(Math.min(dia, ultimoDia(a, m)))}`;
+  }
+  function addMesesISO(iso, meses) { const [a, m, d] = partesISO(iso); return dataNoMes(a, m, d, meses); }
+  function addDiasISO(iso, dias) {
     const [a, m, d] = partesISO(iso);
-    const total = m - 1 + meses;
-    const ano = a + Math.floor(total / 12);
-    const mes = ((total % 12) + 12) % 12 + 1;
-    const ultimoDia = new Date(ano, mes, 0).getDate();
-    return `${ano}-${pad(mes)}-${pad(Math.min(d, ultimoDia))}`;
+    return new Date(Date.UTC(a, m - 1, d + dias)).toISOString().slice(0, 10);
   }
   /** Dias de 'deISO' até 'ateISO' (positivo = no futuro). */
   function diasEntre(deISO, ateISO) {
@@ -51,14 +61,12 @@
     const [a2, m2, d2] = partesISO(ateISO);
     return Math.round((Date.UTC(a2, m2 - 1, d2) - Date.UTC(a1, m1 - 1, d1)) / 86400000);
   }
-  function fmtData(iso) { const [a, m, d] = iso.split("-"); return `${d}/${m}/${a}`; }
-  function fmtDiaLongo(iso) {
-    const [a, m, d] = partesISO(iso);
-    const txt = new Date(a, m - 1, d).toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "long" });
-    return txt.charAt(0).toUpperCase() + txt.slice(1);
-  }
+  function fmtData(iso) { if (!iso) return ""; const [a, m, d] = iso.split("-"); return `${d}/${m}/${a}`; }
+  function fmtDataCurta(iso) { const [, m, d] = iso.split("-"); return `${d}/${m}`; }
   function fmtBRL(v) { return Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }); }
+  function fmtNumero(v) { return Number(v).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
   function fmtNumeroCSV(v) { return Number(v).toFixed(2).replace(".", ","); }
+  function nomeMes(ano, mes) { return `${MESES[mes - 1].charAt(0).toUpperCase()}${MESES[mes - 1].slice(1)} ${ano}`; }
   /** Aceita "89,90", "1.234,56", "1234.56", "R$ 50". Retorna NaN se inválido. */
   function lerValor(txt) {
     let s = String(txt ?? "").trim().replace(/R\$|\s/g, "");
@@ -68,9 +76,8 @@
     return Number.isFinite(v) ? Math.round(v * 100) / 100 : NaN;
   }
   function valorParaCampo(v) { return Number(v).toFixed(2).replace(".", ","); }
-  function semAcento(s) { return s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase(); }
-  function ehCredito(nomeForma) { return semAcento(nomeForma || "").includes("credito"); }
   function plural(n, s, p) { return n === 1 ? s : p; }
+  function soma(lista, fn) { return lista.reduce((t, x) => t + fn(x), 0); }
 
   /** Cria elementos: h("div", {class: "x", onclick: fn}, "texto", outroEl) */
   function h(tag, props = {}, ...filhos) {
@@ -97,7 +104,7 @@
     t.classList.toggle("erro-toast", erro);
     t.hidden = false;
     clearTimeout(timerToast);
-    timerToast = setTimeout(() => { t.hidden = true; }, erro ? 5000 : 3000);
+    timerToast = setTimeout(() => { t.hidden = true; }, erro ? 5000 : 3500);
   }
 
   function confirmar(texto, botao = "Excluir") {
@@ -126,16 +133,24 @@
   function msgErro(e) {
     if (!e) return "Algo deu errado.";
     if (e.code === "23505") return "Já existe um cadastro com esse nome.";
-    if (e.code === "23503") return "Não dá pra remover: está em uso em lançamentos ou contas.";
+    if (e.code === "23503") return "Não dá pra remover: está em uso em algum lançamento.";
     if (/fetch|network|Failed/i.test(e.message || "")) return "Sem conexão com o servidor. Confira a internet e tente de novo.";
     return e.message || "Algo deu errado.";
   }
 
-  /** Executa uma consulta do Supabase e lança erro se houver. */
   async function exec(consulta) {
     const { data, error } = await consulta;
     if (error) throw error;
     return data;
+  }
+  /** Busca todas as linhas, de 1000 em 1000 (limite de cada consulta do Supabase). */
+  async function buscarTodos(fabrica) {
+    const todos = [];
+    for (let de = 0; ; de += 1000) {
+      const lote = await exec(fabrica().range(de, de + 999));
+      todos.push(...lote);
+      if (lote.length < 1000) return todos;
+    }
   }
 
   /** Desabilita o botão enquanto a ação roda e mostra erros num toast. */
@@ -156,17 +171,198 @@
 
   const estado = {
     iniciado: false,
-    view: "lancar",
-    categorias: [], formas: [],
-    catPorId: new Map(), formaPorId: new Map(),
-    contas: [],
-    extrato: { ano: 0, mes: 0, linhas: [] },
-    rel: { periodo: "mensal", mes: 0, ano: 0, tipo: "despesa", cacheAno: null, linhasAno: [] },
+    view: "inicio",
+    categorias: [], formas: [], cartoes: [],
+    catPorId: new Map(), formaPorId: new Map(), cartaoPorId: new Map(),
+    lancamentos: [], lancPorId: new Map(),
+    inicio: { ano: 0, mes: 0 },
+    contas: { lado: "despesa", situacao: "aberto", ano: 0, mes: 0, entradas: [] },
+    rel: { periodo: "mensal", mes: 0, ano: 0, tipo: "despesa", situacao: "tudo", cacheAno: null, parcelasAno: [] },
     grafico: null,
-    editando: null, // transação aberta no modal
-    contaEditando: null,
-    contaPagando: null,
+    parcela: null,  // parcela aberta no modal
+    fatura: null,   // fatura aberta no modal
   };
+
+  // ---------------------------------------------------------------------------
+  // Regras de datas: cartão, parcelas e contas fixas
+  // ---------------------------------------------------------------------------
+  /** Vencimento da fatura em que cai uma compra feita em 'compraISO'.
+   *  Compras a partir do dia do fechamento vão pra fatura seguinte. */
+  function vencimentoFatura(cartao, compraISO, deslocamento = 0) {
+    const [a, m, d] = partesISO(compraISO);
+    const fechaEsteMes = Math.min(cartao.dia_fechamento, ultimoDia(a, m));
+    let meses = d >= fechaEsteMes ? 1 : 0;                      // mês do fechamento
+    if (cartao.dia_vencimento <= cartao.dia_fechamento) meses += 1; // vence no mês seguinte ao fechamento
+    return dataNoMes(a, m, cartao.dia_vencimento, meses + deslocamento);
+  }
+  /** Dia em que a fatura com esse vencimento fecha. */
+  function fechamentoFatura(cartao, vencimentoISO) {
+    const [a, m] = partesISO(vencimentoISO);
+    const volta = cartao.dia_vencimento <= cartao.dia_fechamento ? -1 : 0;
+    return dataNoMes(a, m, cartao.dia_fechamento, volta);
+  }
+  function ocorrencia(lanc, n) {
+    return lanc.intervalo === "dias"
+      ? addDiasISO(lanc.data_base, (n - 1) * lanc.intervalo_dias)
+      : addMesesISO(lanc.data_base, n - 1);
+  }
+  /** Vencimento da parcela n de um lançamento. */
+  function vencimentoDa(lanc, n) {
+    const cartao = lanc.cartao_id ? estado.cartaoPorId.get(lanc.cartao_id) : null;
+    if (!cartao) return ocorrencia(lanc, n);
+    if (lanc.condicao === "fixo") return vencimentoFatura(cartao, ocorrencia(lanc, n)); // assinatura no cartão
+    return vencimentoFatura(cartao, lanc.data_base, n - 1);                          // compra parcelada
+  }
+  /** Divide em centavos; os centavos que sobram vão nas primeiras parcelas. */
+  function dividir(valor, n) {
+    const centavos = Math.round(valor * 100);
+    const base = Math.floor(centavos / n);
+    const sobra = centavos - base * n;
+    return Array.from({ length: n }, (_, i) => (base + (i < sobra ? 1 : 0)) / 100);
+  }
+  /** Parcelas a criar pra um lançamento, a partir do número 'deN'. */
+  function gerarParcelas(lanc, deN = 1, garantirUma = true) {
+    const linhas = [];
+    if (lanc.condicao === "fixo") {
+      const limite = addDiasISO(hojeISO(), HORIZONTE_FIXOS);
+      for (let n = deN; n < deN + 400; n++) {
+        const venc = vencimentoDa(lanc, n);
+        if (venc > limite && !(garantirUma && linhas.length === 0)) break;
+        linhas.push({ numero: n, vencimento: venc, valor: Number(lanc.valor), cartao_id: lanc.cartao_id || null });
+      }
+      return linhas;
+    }
+    const total = lanc.condicao === "parcelado" ? lanc.total_parcelas : 1;
+    const valores = lanc.condicao === "parcelado" && lanc.valor_modo === "total"
+      ? dividir(Number(lanc.valor), total)
+      : Array(total).fill(Number(lanc.valor));
+    for (let n = 1; n <= total; n++) {
+      linhas.push({ numero: n, vencimento: vencimentoDa(lanc, n), valor: valores[n - 1], cartao_id: lanc.cartao_id || null });
+    }
+    return linhas;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Situação das parcelas e agrupamento em faturas
+  // ---------------------------------------------------------------------------
+  function lancDe(p) { return estado.lancPorId.get(p.lancamento_id); }
+  function valorEfetivo(p) { return p.baixado && p.valor_baixa != null ? Number(p.valor_baixa) : Number(p.valor); }
+  function emAtraso(p) { return !p.baixado && p.vencimento < hojeISO(); }
+
+  function situacaoTexto(vencimentoISO) {
+    const dias = diasEntre(hojeISO(), vencimentoISO);
+    if (dias < 0) return { texto: `Vencida há ${-dias} ${plural(-dias, "dia", "dias")}`, classe: "st-vencida", alerta: true };
+    if (dias === 0) return { texto: "Vence hoje", classe: "st-breve", alerta: true };
+    if (dias === 1) return { texto: "Vence amanhã", classe: "st-breve", alerta: true };
+    if (dias <= DIAS_ALERTA) return { texto: `Vence em ${dias} dias`, classe: "st-breve", alerta: true };
+    return { texto: `Vence em ${dias} dias`, classe: "", alerta: false };
+  }
+  function situacaoParcela(p) {
+    const lanc = lancDe(p);
+    if (p.baixado) {
+      const verbo = lanc?.tipo === "receita" ? "Recebido" : "Pago";
+      return { texto: `${verbo} em ${fmtData(p.data_baixa)}`, classe: "st-paga", alerta: false };
+    }
+    return situacaoTexto(p.vencimento);
+  }
+  function situacaoFatura(f) {
+    if (f.abertas.length === 0) return { texto: `Paga em ${fmtData(f.parcelas[0].data_baixa)}`, classe: "st-paga", alerta: false };
+    const fecha = fechamentoFatura(f.cartao, f.vencimento);
+    const st = situacaoTexto(f.vencimento);
+    if (hojeISO() < fecha) return { texto: `Aberta, fecha em ${fmtDataCurta(fecha)}`, classe: st.alerta ? st.classe : "", alerta: st.alerta };
+    return { texto: `Fechada. ${st.texto}`, classe: st.classe, alerta: st.alerta };
+  }
+  function rotuloParcela(p) {
+    const lanc = lancDe(p);
+    if (!lanc) return "";
+    if (lanc.condicao === "fixo") return "Fixa";
+    if (lanc.condicao === "parcelado") return `${p.numero}/${lanc.total_parcelas}`;
+    return "";
+  }
+
+  /** Junta parcelas de cartão em faturas (mesmo cartão + mesmo vencimento). */
+  function agrupar(parcelas) {
+    const entradas = [];
+    const faturas = new Map();
+    for (const p of parcelas) {
+      if (!lancDe(p)) continue;
+      const cartao = p.cartao_id ? estado.cartaoPorId.get(p.cartao_id) : null;
+      if (!cartao) { entradas.push({ tipo: "parcela", p, vencimento: p.vencimento, valor: valorEfetivo(p) }); continue; }
+      const chave = `${p.cartao_id}|${p.vencimento}`;
+      let f = faturas.get(chave);
+      if (!f) {
+        f = { tipo: "fatura", cartao, vencimento: p.vencimento, parcelas: [], abertas: [], valor: 0 };
+        faturas.set(chave, f);
+        entradas.push(f);
+      }
+      f.parcelas.push(p);
+      if (!p.baixado) f.abertas.push(p);
+      f.valor += valorEfetivo(p);
+    }
+    return entradas.sort((x, y) => x.vencimento.localeCompare(y.vencimento));
+  }
+
+  // ---------------------------------------------------------------------------
+  // Carregamento de dados
+  // ---------------------------------------------------------------------------
+  async function carregarCadastros() {
+    const [cats, formas, cartoes] = await Promise.all([
+      exec(sb.from("categorias").select("id,nome,tipo").order("nome")),
+      exec(sb.from("formas_pagamento").select("id,nome,tipo").order("nome")),
+      exec(sb.from("cartoes").select("*").order("nome")),
+    ]);
+    estado.categorias = cats;
+    estado.formas = formas;
+    estado.cartoes = cartoes;
+    estado.catPorId = new Map(cats.map((c) => [c.id, c]));
+    estado.formaPorId = new Map(formas.map((f) => [f.id, f]));
+    estado.cartaoPorId = new Map(cartoes.map((c) => [c.id, c]));
+  }
+  async function carregarLancamentos() {
+    estado.lancamentos = await buscarTodos(() => sb.from("lancamentos").select("*").order("id"));
+    estado.lancPorId = new Map(estado.lancamentos.map((l) => [l.id, l]));
+  }
+  function parcelasDoPeriodo(ini, fim) {
+    return buscarTodos(() => sb.from("parcelas").select("*").gte("vencimento", ini).lt("vencimento", fim)
+      .order("vencimento").order("id"));
+  }
+  function parcelasAbertas() {
+    return buscarTodos(() => sb.from("parcelas").select("*").eq("baixado", false).order("vencimento").order("id"));
+  }
+
+  /** Contas fixas: mantém lançado sempre até 1 ano à frente. */
+  async function renovarFixos() {
+    for (const lanc of estado.lancamentos) {
+      if (lanc.condicao !== "fixo" || !lanc.ativo) continue;
+      const novas = gerarParcelas(lanc, lanc.qtd_gerada + 1, false);
+      if (!novas.length) continue;
+      await exec(sb.from("parcelas").upsert(novas.map((p) => ({ ...p, lancamento_id: lanc.id })),
+        { onConflict: "lancamento_id,numero", ignoreDuplicates: true }));
+      const ultima = novas[novas.length - 1].numero;
+      await exec(sb.from("lancamentos").update({ qtd_gerada: ultima }).eq("id", lanc.id));
+      lanc.qtd_gerada = ultima;
+    }
+  }
+
+  async function atualizarBadge(abertas) {
+    try {
+      abertas = abertas || await parcelasAbertas();
+      const limite = addDiasISO(hojeISO(), DIAS_ALERTA);
+      const n = agrupar(abertas.filter((p) => p.vencimento <= limite)).length;
+      const badge = $("#badge-contas");
+      badge.hidden = n === 0;
+      badge.textContent = n;
+      badge.setAttribute("aria-label", `${n} ${plural(n, "conta precisa", "contas precisam")} de atenção`);
+    } catch (e) { console.error(e); }
+  }
+
+  /** Depois de qualquer alteração: recarrega lançamentos, a tela atual e o contador. */
+  async function aposMudanca() {
+    estado.rel.cacheAno = null;
+    try { await carregarLancamentos(); } catch (e) { toast(msgErro(e), true); }
+    recarregarView();
+    if (estado.view !== "inicio" && estado.view !== "contas") atualizarBadge();
+  }
 
   // ---------------------------------------------------------------------------
   // Login
@@ -221,12 +417,9 @@
     $("#conta-email").textContent = usuario?.email ? `Conectado como ${usuario.email}` : "Conectado";
     $("#tela-login").hidden = true;
     $("#app").hidden = false;
-    const hoje = hojeISO();
-    const [a, m] = partesISO(hoje);
-    estado.extrato.ano = a; estado.extrato.mes = m;
-    estado.rel.ano = a; estado.rel.mes = m;
-    $("#l-data").value = hoje;
-    renderNatureza($("#l-natureza"), "l-nat", "normal");
+    const [a, m] = partesISO(hojeISO());
+    for (const alvo of [estado.inicio, estado.contas, estado.rel]) { alvo.ano = a; alvo.mes = m; }
+    $("#l-data").value = hojeISO();
     try {
       await carregarCadastros();
       if (estado.categorias.length === 0 && estado.formas.length === 0) {
@@ -234,12 +427,14 @@
         await exec(sb.from("formas_pagamento").insert(FORMAS_PADRAO));
         await carregarCadastros();
       }
+      await carregarLancamentos();
+      await renovarFixos();
     } catch (e) { toast(msgErro(e), true); }
     atualizarFormLancar();
-    // Recarrega a aba ATUAL (não força "Lançar"): se a pessoa já tocou em outra
-    // aba enquanto as categorias carregavam, ela continua onde está.
+    // Recarrega a aba ATUAL (não força uma aba): se a pessoa já tocou em outra
+    // aba enquanto os dados carregavam, ela continua onde está.
     recarregarView();
-    carregarContas();
+    if (estado.view !== "inicio" && estado.view !== "contas") atualizarBadge();
   }
 
   // ---------------------------------------------------------------------------
@@ -258,73 +453,149 @@
 
   function recarregarView() {
     const v = estado.view;
-    if (v === "lancar") carregarRecentes();
+    if (v === "inicio") carregarInicio();
+    else if (v === "lancar") carregarRecentes();
     else if (v === "contas") carregarContas();
-    else if (v === "extrato") carregarExtrato();
     else if (v === "relatorios") carregarRelatorio();
     else if (v === "cadastros") renderCadastros();
   }
 
-  /** Depois de qualquer alteração em lançamentos. */
-  function lancamentosMudaram() {
-    estado.rel.cacheAno = null;
+  // Ao voltar pro app (ex.: no dia seguinte), renova fixas e atualiza a tela.
+  document.addEventListener("visibilitychange", async () => {
+    if (document.visibilityState !== "visible" || !estado.iniciado) return;
+    try { await carregarLancamentos(); await renovarFixos(); } catch (e) { console.error(e); }
     recarregarView();
-  }
-
-  // Ao voltar pro app (ex.: abriu o celular no dia seguinte), atualiza vencimentos.
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible" && estado.iniciado) carregarContas();
+    if (estado.view !== "inicio" && estado.view !== "contas") atualizarBadge();
   });
 
   // ---------------------------------------------------------------------------
-  // Cadastros (categorias e formas de pagamento)
+  // Itens de lista (parcela ou fatura)
   // ---------------------------------------------------------------------------
-  async function carregarCadastros() {
-    const [cats, formas] = await Promise.all([
-      exec(sb.from("categorias").select("id,nome,tipo").order("nome")),
-      exec(sb.from("formas_pagamento").select("id,nome").order("nome")),
-    ]);
-    estado.categorias = cats;
-    estado.formas = formas;
-    estado.catPorId = new Map(cats.map((c) => [c.id, c]));
-    estado.formaPorId = new Map(formas.map((f) => [f.id, f]));
+  function itemEntrada(e, { mostrarTipo = false } = {}) {
+    if (e.tipo === "fatura") {
+      const st = situacaoFatura(e);
+      return h("li", {}, h("button", { class: "item item-clicavel " + (st.classe || ""), type: "button", onclick: () => abrirFatura(e) },
+        h("span", { class: "item-titulo" }, `Fatura ${e.cartao.nome}`),
+        h("span", { class: "item-valor despesa" }, fmtBRL(e.valor),
+          h("small", {}, `${e.parcelas.length} ${plural(e.parcelas.length, "lançamento", "lançamentos")}`)),
+        h("span", { class: "item-meta" },
+          h("span", { class: "item-status" }, st.texto),
+          h("span", {}, `vence ${fmtData(e.vencimento)}`)),
+      ));
+    }
+    const p = e.p;
+    const lanc = lancDe(p);
+    const st = situacaoParcela(p);
+    const cat = estado.catPorId.get(lanc.categoria_id)?.nome ?? "";
+    const rotulo = rotuloParcela(p);
+    return h("li", {}, h("button", { class: "item item-clicavel " + (st.classe || ""), type: "button", onclick: () => abrirParcela(p) },
+      h("span", { class: "item-titulo" }, lanc.descricao || cat),
+      h("span", { class: "item-valor " + lanc.tipo }, `${lanc.tipo === "despesa" ? "−" : "+"} ${fmtBRL(valorEfetivo(p))}`,
+        rotulo ? h("small", {}, rotulo) : null),
+      h("span", { class: "item-meta" },
+        h("span", { class: "item-status" }, st.texto),
+        p.baixado ? null : h("span", {}, fmtData(p.vencimento)),
+        mostrarTipo ? h("span", {}, lanc.tipo === "despesa" ? "a pagar" : "a receber") : null,
+        lanc.descricao && cat ? h("span", {}, cat) : null,
+        lanc.pessoa ? h("span", {}, lanc.pessoa) : null),
+    ));
+  }
+  function listaOuVazio(ul, entradas, vazio, opcoes) {
+    ul.replaceChildren(...(entradas.length ? entradas.map((e) => itemEntrada(e, opcoes)) : [h("li", { class: "vazio" }, vazio)]));
   }
 
-  function preencherSelect(select, itens, selecionado) {
-    select.replaceChildren(...itens.map((i) => h("option", { value: i.id }, i.nome)));
+  // ---------------------------------------------------------------------------
+  // Início: visão geral do mês
+  // ---------------------------------------------------------------------------
+  function mudarMes(alvo, delta, recarregar) {
+    const [a, m] = partesISO(dataNoMes(alvo.ano, alvo.mes, 1, delta));
+    alvo.ano = a; alvo.mes = m;
+    recarregar();
+  }
+  $("#i-mes-ant").addEventListener("click", () => mudarMes(estado.inicio, -1, carregarInicio));
+  $("#i-mes-prox").addEventListener("click", () => mudarMes(estado.inicio, 1, carregarInicio));
+
+  async function carregarInicio() {
+    const { ano, mes } = estado.inicio;
+    $("#i-mes-titulo").textContent = nomeMes(ano, mes);
+    const ini = dataNoMes(ano, mes, 1);
+    let doMes, abertas;
+    try {
+      [doMes, abertas] = await Promise.all([parcelasDoPeriodo(ini, dataNoMes(ano, mes, 1, 1)), parcelasAbertas()]);
+    } catch (e) { toast(msgErro(e), true); return; }
+    atualizarBadge(abertas);
+    doMes = doMes.filter(lancDe);
+    abertas = abertas.filter(lancDe);
+
+    const linha = (tipo) => {
+      const lista = doMes.filter((p) => lancDe(p).tipo === tipo);
+      const feito = soma(lista.filter((p) => p.baixado), valorEfetivo);
+      const falta = soma(lista.filter((p) => !p.baixado), valorEfetivo);
+      return { feito, falta, total: feito + falta };
+    };
+    const r = linha("receita"), d = linha("despesa");
+    const celula = (v, classe) => h("td", { class: classe || "" }, fmtNumero(v));
+    const classeSaldo = (v) => (v < 0 ? "despesa" : "receita");
+    $("#i-resumo tbody").replaceChildren(
+      h("tr", {}, h("th", {}, "Receitas"), celula(r.feito, "receita"), celula(r.falta), celula(r.total)),
+      h("tr", {}, h("th", {}, "Despesas"), celula(d.feito, "despesa"), celula(d.falta), celula(d.total)),
+      h("tr", { class: "linha-saldo" }, h("th", {}, "Saldo"),
+        celula(r.feito - d.feito, classeSaldo(r.feito - d.feito)),
+        celula(r.falta - d.falta),
+        celula(r.total - d.total, classeSaldo(r.total - d.total))),
+    );
+
+    const hoje = hojeISO();
+    const atrasadas = agrupar(abertas.filter((p) => p.vencimento < hoje));
+    $("#i-atraso-painel").hidden = atrasadas.length === 0;
+    $("#i-atraso-titulo").textContent = `Em atraso (${fmtBRL(soma(atrasadas, (e) => e.tipo === "fatura" ? soma(e.abertas, valorEfetivo) : e.valor))})`;
+    listaOuVazio($("#i-atraso"), atrasadas, "", { mostrarTipo: true });
+
+    const proximas = agrupar(abertas.filter((p) => p.vencimento >= hoje && p.vencimento <= addDiasISO(hoje, 7)));
+    listaOuVazio($("#i-proximos"), proximas, "Nada vencendo nos próximos 7 dias.", { mostrarTipo: true });
+
+    const faturas = estado.cartoes.map((c) => {
+      const futuras = agrupar(abertas.filter((p) => p.cartao_id === c.id && p.vencimento >= hoje));
+      return futuras[0];
+    }).filter(Boolean);
+    $("#i-cartoes-painel").hidden = faturas.length === 0;
+    listaOuVazio($("#i-cartoes"), faturas, "");
+  }
+
+  // ---------------------------------------------------------------------------
+  // Cadastros
+  // ---------------------------------------------------------------------------
+  function preencherSelect(select, itens, selecionado, rotulo = (i) => i.nome) {
+    select.replaceChildren(...itens.map((i) => h("option", { value: i.id }, rotulo(i))));
     if (selecionado != null && itens.some((i) => i.id === selecionado)) select.value = String(selecionado);
   }
   function categoriasDoTipo(tipo) { return estado.categorias.filter((c) => c.tipo === tipo); }
-
-  function renderNatureza(fieldset, nome, valor) {
-    fieldset.replaceChildren(
-      h("legend", {}, "Este lançamento é"),
-      ...NATUREZAS.map((n) => h("label", {},
-        h("input", { type: "radio", name: nome, value: n.valor, checked: n.valor === valor }),
-        h("strong", {}, n.titulo),
-        h("small", {}, n.dica),
-      )),
-    );
-  }
-  function lerNatureza(fieldset) { return fieldset.querySelector("input:checked")?.value || "normal"; }
-  function definirNatureza(fieldset, valor) {
-    const r = fieldset.querySelector(`input[value="${valor}"]`);
-    if (r) r.checked = true;
-  }
-  /** Ao escolher "Crédito", sugere "compra no crédito"; ao sair do crédito, volta pro normal. */
-  function sugerirNatureza(fieldset, selectForma, tipo) {
-    const forma = estado.formaPorId.get(Number(selectForma.value));
-    if (tipo === "despesa" && forma && ehCredito(forma.nome)) definirNatureza(fieldset, "credito_informativo");
-    else if (lerNatureza(fieldset) === "credito_informativo") definirNatureza(fieldset, "normal");
+  function formasImediatas() { return estado.formas.filter((f) => f.tipo === "imediata"); }
+  /** Forma sugerida ao dar baixa: a do lançamento se for "na hora"; senão Pix; senão a primeira. */
+  function formaSugerida(preferidaId) {
+    const imediatas = formasImediatas();
+    return imediatas.find((f) => f.id === preferidaId)?.id
+      ?? imediatas.find((f) => f.nome.trim().toLowerCase() === "pix")?.id
+      ?? imediatas[0]?.id;
   }
 
   function renderCadastros() {
-    const linhaCat = (c) => h("li", {}, h("span", {}, c.nome),
-      h("button", { class: "btn-remover", type: "button", "aria-label": `Remover ${c.nome}`, onclick: () => removerCadastro("categorias", c) }, "Remover"));
+    const remover = (tabela, item) => h("button", { class: "btn-remover", type: "button", "aria-label": `Remover ${item.nome}`,
+      onclick: () => removerCadastro(tabela, item) }, "Remover");
+    const linhaCat = (c) => h("li", {}, h("span", {}, c.nome), remover("categorias", c));
     $("#lista-cat-despesa").replaceChildren(...categoriasDoTipo("despesa").map(linhaCat));
     $("#lista-cat-receita").replaceChildren(...categoriasDoTipo("receita").map(linhaCat));
-    $("#lista-formas").replaceChildren(...estado.formas.map((f) => h("li", {}, h("span", {}, f.nome),
-      h("button", { class: "btn-remover", type: "button", "aria-label": `Remover ${f.nome}`, onclick: () => removerCadastro("formas_pagamento", f) }, "Remover"))));
+    $("#lista-formas").replaceChildren(...estado.formas.map((f) => {
+      const sel = h("select", { class: "select-mini", "aria-label": `Como funciona ${f.nome}`,
+        onchange: (ev) => mudarTipoForma(f, ev.target.value) },
+        ...Object.entries(TIPO_FORMA).map(([v, t]) => h("option", { value: v, selected: v === f.tipo }, t)));
+      return h("li", {}, h("span", {}, f.nome), h("span", { class: "li-acoes" }, sel, remover("formas_pagamento", f)));
+    }));
+    $("#lista-cartoes").replaceChildren(...(estado.cartoes.length
+      ? estado.cartoes.map((c) => h("li", {},
+          h("span", {}, c.nome, h("small", { class: "dica" }, ` fecha dia ${c.dia_fechamento}, vence dia ${c.dia_vencimento}`)),
+          remover("cartoes", c)))
+      : [h("li", { class: "dica" }, "Nenhum cartão ainda.")]));
   }
 
   async function aposMudarCadastros() {
@@ -350,10 +621,33 @@
     const nome = $("#forma-nome").value.trim();
     if (!nome) return;
     acao(ev.submitter, async () => {
-      await exec(sb.from("formas_pagamento").insert({ nome }));
+      await exec(sb.from("formas_pagamento").insert({ nome, tipo: $("#forma-tipo").value }));
       $("#forma-nome").value = "";
       await aposMudarCadastros();
       toast(`Forma de pagamento “${nome}” adicionada.`);
+    });
+  });
+
+  function mudarTipoForma(forma, tipo) {
+    acao(null, async () => {
+      await exec(sb.from("formas_pagamento").update({ tipo }).eq("id", forma.id));
+      await aposMudarCadastros();
+      toast(`“${forma.nome}” agora é: ${TIPO_FORMA[tipo]}. Vale pros próximos lançamentos.`);
+    });
+  }
+
+  $("#form-cartao").addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    const nome = $("#cartao-nome").value.trim();
+    const fecha = parseInt($("#cartao-fecha").value, 10);
+    const vence = parseInt($("#cartao-vence").value, 10);
+    if (!nome) { toast("Digite o nome do cartão.", true); return; }
+    if (!(fecha >= 1 && fecha <= 31) || !(vence >= 1 && vence <= 31)) { toast("Dias de fechamento e vencimento devem ser entre 1 e 31.", true); return; }
+    acao(ev.submitter, async () => {
+      await exec(sb.from("cartoes").insert({ nome, dia_fechamento: fecha, dia_vencimento: vence }));
+      $("#cartao-nome").value = ""; $("#cartao-fecha").value = ""; $("#cartao-vence").value = "";
+      await aposMudarCadastros();
+      toast(`Cartão “${nome}” adicionado.`);
     });
   });
 
@@ -370,443 +664,476 @@
   // Lançar
   // ---------------------------------------------------------------------------
   const formLancar = $("#form-lancar");
-  const tipoLancar = () => formLancar.querySelector('input[name="tipo"]:checked').value;
+  const radio = (nome, raiz = document) => raiz.querySelector(`input[name="${nome}"]:checked`).value;
+
+  /** Lê o formulário e devolve o lançamento como ficaria salvo. */
+  function lancamentoDoForm() {
+    const tipo = radio("tipo");
+    const condicao = radio("condicao");
+    const forma = estado.formaPorId.get(Number($("#l-forma").value));
+    const ehCartao = tipo === "despesa" && forma?.tipo === "cartao";
+    const intervalo = ehCartao ? "mensal" : $("#l-intervalo").value;
+    return {
+      tipo, condicao, forma, ehCartao,
+      dados: {
+        tipo,
+        descricao: $("#l-descricao").value.trim(),
+        pessoa: $("#l-pessoa").value.trim(),
+        observacao: $("#l-obs").value.trim(),
+        categoria_id: Number($("#l-categoria").value),
+        forma_pagamento_id: forma?.id,
+        cartao_id: ehCartao ? Number($("#l-cartao").value) || null : null,
+        data_base: $("#l-data").value,
+        condicao,
+        total_parcelas: condicao === "parcelado" ? parseInt($("#l-parcelas").value, 10) : condicao === "avista" ? 1 : null,
+        valor: lerValor($("#l-valor").value),
+        valor_modo: condicao === "parcelado" ? radio("valor-modo") : "total",
+        intervalo,
+        intervalo_dias: intervalo === "dias" ? parseInt($("#l-intervalo-dias").value, 10) : null,
+      },
+    };
+  }
 
   function atualizarFormLancar() {
-    const tipo = tipoLancar();
+    const tipo = radio("tipo");
+    const condicao = radio("condicao");
     $(".valor-grande").dataset.tipo = tipo;
-    $("#l-origem-rotulo").textContent = tipo === "despesa" ? "Onde gastou" : "De quem recebeu";
+    $("#l-pessoa-rotulo").textContent = tipo === "despesa" ? "Onde / pra quem" : "De quem";
+    // Receita não vai pra fatura de cartão.
+    const formas = tipo === "receita" ? estado.formas.filter((f) => f.tipo !== "cartao") : estado.formas;
+    preencherSelect($("#l-forma"), formas, Number($("#l-forma").value));
     preencherSelect($("#l-categoria"), categoriasDoTipo(tipo), Number($("#l-categoria").value));
-    preencherSelect($("#l-forma"), estado.formas, Number($("#l-forma").value));
-    sugerirNatureza($("#l-natureza"), $("#l-forma"), tipo);
-    atualizarInfoParcelas();
+    preencherSelect($("#l-cartao"), estado.cartoes, Number($("#l-cartao").value));
+    const { forma, ehCartao } = lancamentoDoForm();
+
+    $("#l-cartao-wrap").hidden = !ehCartao || estado.cartoes.length === 0;
+    $("#l-sem-cartao").hidden = !(ehCartao && estado.cartoes.length === 0);
+    $("#l-parcelas-wrap").hidden = condicao !== "parcelado";
+    $("#l-modo-wrap").hidden = condicao !== "parcelado";
+    $("#l-intervalo-wrap").hidden = condicao === "avista" || ehCartao;
+    $("#l-intervalo-dias").hidden = $("#l-intervalo").value !== "dias";
+    $("#l-data-rotulo").textContent = ehCartao ? "Data da compra" : condicao === "avista" ? "Data" : "1º vencimento";
+
+    const podeBaixar = condicao === "avista" && !ehCartao;
+    $("#l-pago-wrap").hidden = !podeBaixar;
+    $("#l-pago-rotulo").textContent = tipo === "despesa" ? "Já pago" : "Já recebido";
+    const data = $("#l-data").value;
+    $("#l-pago").checked = podeBaixar && forma?.tipo === "imediata" && !!data && data <= hojeISO();
+    atualizarPrevia();
   }
 
-  function atualizarInfoParcelas() {
-    const parcelado = $("#l-parcelado").checked;
-    $("#l-parcelas-wrap").hidden = !parcelado;
-    const info = $("#l-parcelas-info");
-    const n = parseInt($("#l-parcelas").value, 10);
-    const v = lerValor($("#l-valor").value);
-    info.hidden = !(parcelado && n >= 2 && v > 0);
-    if (!info.hidden) info.textContent = `${n}× de ${fmtBRL(Math.floor((v * 100) / n) / 100)}, uma em cada mês a partir da data escolhida.`;
+  function atualizarPrevia() {
+    const { dados, ehCartao, condicao, tipo } = lancamentoDoForm();
+    const alvo = $("#l-previa");
+    const n = dados.total_parcelas;
+    const ok = dados.valor > 0 && dados.data_base && (!ehCartao || dados.cartao_id)
+      && (condicao !== "parcelado" || (n >= 2 && n <= 120))
+      && (dados.intervalo !== "dias" || dados.intervalo_dias >= 1);
+    if (!ok) { alvo.textContent = ""; return; }
+    const parcelas = gerarParcelas(dados);
+    const primeira = parcelas[0];
+    const cartao = ehCartao ? estado.cartaoPorId.get(dados.cartao_id) : null;
+    const naFatura = cartao ? ` na fatura do ${cartao.nome}` : "";
+    const repete = dados.intervalo === "dias" ? `a cada ${dados.intervalo_dias} dias` : "todo mês";
+    let txt;
+    if (condicao === "avista") {
+      if (cartao) txt = `Cai na fatura do ${cartao.nome} que vence em ${fmtData(primeira.vencimento)}.`;
+      else if ($("#l-pago").checked) txt = `Entra como ${tipo === "despesa" ? "pago" : "recebido"} em ${fmtData(primeira.vencimento)}.`;
+      else txt = `Fica em aberto, vence em ${fmtData(primeira.vencimento)}.`;
+    } else if (condicao === "parcelado") {
+      const v1 = parcelas[0].valor, vN = parcelas[parcelas.length - 1].valor;
+      const valores = v1 === vN ? `${n}× de ${fmtBRL(v1)}`
+        : `${parcelas.filter((p) => p.valor === v1).length}× de ${fmtBRL(v1)} e ${parcelas.filter((p) => p.valor === vN).length}× de ${fmtBRL(vN)}`;
+      const total = soma(parcelas, (p) => p.valor);
+      txt = `${valores}${naFatura} (total ${fmtBRL(total)}). A 1ª vence em ${fmtData(primeira.vencimento)}${cartao ? "" : `, depois ${repete}`}.`;
+    } else {
+      txt = `${fmtBRL(dados.valor)} ${cartao ? "todo mês" : repete}${naFatura}, a partir de ${fmtData(primeira.vencimento)}. ` +
+        `Os próximos 12 meses ficam lançados e o app vai renovando sozinho.`;
+    }
+    alvo.textContent = txt;
   }
 
-  formLancar.querySelectorAll('input[name="tipo"]').forEach((r) => r.addEventListener("change", atualizarFormLancar));
-  $("#l-forma").addEventListener("change", () => sugerirNatureza($("#l-natureza"), $("#l-forma"), tipoLancar()));
-  $("#l-parcelado").addEventListener("change", atualizarInfoParcelas);
-  $("#l-parcelas").addEventListener("input", atualizarInfoParcelas);
-  $("#l-valor").addEventListener("input", atualizarInfoParcelas);
+  formLancar.querySelectorAll('input[name="tipo"], input[name="condicao"]').forEach((r) => r.addEventListener("change", atualizarFormLancar));
+  ["#l-forma", "#l-data", "#l-intervalo"].forEach((s) => $(s).addEventListener("change", atualizarFormLancar));
+  ["#l-valor", "#l-parcelas", "#l-intervalo-dias"].forEach((s) => $(s).addEventListener("input", atualizarPrevia));
+  $("#l-cartao").addEventListener("change", atualizarPrevia);
+  $("#l-pago").addEventListener("change", atualizarPrevia);
+  formLancar.querySelectorAll('input[name="valor-modo"]').forEach((r) => r.addEventListener("change", atualizarPrevia));
+  $("#l-ir-cartoes").addEventListener("click", () => mostrarView("cadastros"));
 
-  /** Insere um lançamento; se parcelado, cria uma linha por mês ligadas à primeira. */
-  async function inserirTransacao(dados, totalParcelas = 1) {
-    if (totalParcelas <= 1) {
-      return exec(sb.from("transacoes").insert({ ...dados, parcela_atual: 1, total_parcelas: 1 }).select("id").single());
-    }
-    // Divide em centavos; os centavos que sobram vão nas primeiras parcelas (a soma bate exata).
-    const centavos = Math.round(dados.valor * 100);
-    const base = Math.floor(centavos / totalParcelas);
-    const sobra = centavos - base * totalParcelas;
-    const valorDa = (i) => (base + (i <= sobra ? 1 : 0)) / 100;
-
-    const pai = await exec(sb.from("transacoes")
-      .insert({ ...dados, valor: valorDa(1), parcela_atual: 1, total_parcelas: totalParcelas })
-      .select("id").single());
-    const filhas = [];
-    for (let i = 2; i <= totalParcelas; i++) {
-      filhas.push({ ...dados, valor: valorDa(i), data: addMesesISO(dados.data, i - 1),
-        parcela_atual: i, total_parcelas: totalParcelas, transacao_pai_id: pai.id });
-    }
-    try { await exec(sb.from("transacoes").insert(filhas)); }
-    catch (e) { await sb.from("transacoes").delete().eq("id", pai.id); throw e; }
-    return pai;
+  /** Cria o lançamento e as parcelas. 'jaPago' dá baixa na hora (à vista). */
+  async function criarLancamento(dados, jaPago) {
+    const parcelas = gerarParcelas(dados);
+    const qtd = dados.condicao === "fixo" ? parcelas[parcelas.length - 1].numero : parcelas.length;
+    const lanc = await exec(sb.from("lancamentos").insert({ ...dados, qtd_gerada: qtd }).select("*").single());
+    const linhas = parcelas.map((p) => ({ ...p, lancamento_id: lanc.id }));
+    if (jaPago) Object.assign(linhas[0], { baixado: true, data_baixa: dados.data_base, forma_baixa_id: dados.forma_pagamento_id });
+    try { await exec(sb.from("parcelas").insert(linhas)); }
+    catch (e) { await sb.from("lancamentos").delete().eq("id", lanc.id); throw e; }
+    return { lanc, parcelas: linhas };
   }
 
   formLancar.addEventListener("submit", (ev) => {
     ev.preventDefault();
-    const valor = lerValor($("#l-valor").value);
-    const data = $("#l-data").value;
-    const parcelado = $("#l-parcelado").checked;
-    const parcelas = parcelado ? parseInt($("#l-parcelas").value, 10) : 1;
-    if (!(valor > 0)) { toast("Digite um valor maior que zero.", true); $("#l-valor").focus(); return; }
-    if (!data) { toast("Escolha a data.", true); return; }
-    if (!$("#l-categoria").value || !$("#l-forma").value) { toast("Escolha a categoria e a forma de pagamento.", true); return; }
-    if (parcelado && !(parcelas >= 2 && parcelas <= 48)) { toast("Número de parcelas deve ser entre 2 e 48.", true); return; }
+    const { dados, ehCartao, condicao, tipo } = lancamentoDoForm();
+    if (!(dados.valor > 0)) { toast("Digite um valor maior que zero.", true); $("#l-valor").focus(); return; }
+    if (!dados.data_base) { toast("Escolha a data.", true); return; }
+    if (!dados.categoria_id || !dados.forma_pagamento_id) { toast("Escolha a categoria e a forma de pagamento.", true); return; }
+    if (ehCartao && !dados.cartao_id) { toast("Cadastre um cartão em Cadastros pra lançar no crédito.", true); return; }
+    if (condicao === "parcelado" && !(dados.total_parcelas >= 2 && dados.total_parcelas <= 120)) { toast("Número de parcelas deve ser entre 2 e 120.", true); return; }
+    if (dados.intervalo === "dias" && !(dados.intervalo_dias >= 1 && dados.intervalo_dias <= 365)) { toast("O intervalo deve ser entre 1 e 365 dias.", true); return; }
+    const jaPago = !$("#l-pago-wrap").hidden && $("#l-pago").checked;
 
     acao($("#l-salvar"), async () => {
-      await inserirTransacao({
-        data, tipo: tipoLancar(), valor,
-        categoria_id: Number($("#l-categoria").value),
-        forma_pagamento_id: Number($("#l-forma").value),
-        descricao: $("#l-descricao").value.trim(),
-        origem_destino: $("#l-origem").value.trim(),
-        natureza: lerNatureza($("#l-natureza")),
-      }, parcelas);
+      const { parcelas } = await criarLancamento(dados, jaPago);
       $("#l-valor").value = "";
       $("#l-descricao").value = "";
-      $("#l-origem").value = "";
-      $("#l-parcelado").checked = false;
-      atualizarInfoParcelas();
-      definirNatureza($("#l-natureza"), "normal");
-      sugerirNatureza($("#l-natureza"), $("#l-forma"), tipoLancar());
-      toast(parcelado ? `Lançamento salvo em ${parcelas} parcelas.` : "Lançamento salvo.");
-      lancamentosMudaram();
+      $("#l-pessoa").value = "";
+      $("#l-obs").value = "";
+      formLancar.querySelector('input[name="condicao"][value="avista"]').checked = true;
+      atualizarFormLancar();
+      const cartao = ehCartao ? estado.cartaoPorId.get(dados.cartao_id) : null;
+      let msg;
+      if (condicao === "fixo") msg = `Conta fixa salva: ${parcelas.length} meses lançados.`;
+      else if (cartao) msg = `Lançado na fatura do ${cartao.nome}${condicao === "parcelado" ? ` em ${parcelas.length} parcelas` : ""}.`;
+      else if (condicao === "parcelado") msg = `Lançamento salvo em ${parcelas.length} parcelas.`;
+      else msg = jaPago ? `Lançamento salvo como ${tipo === "despesa" ? "pago" : "recebido"}.` : "Lançamento salvo em aberto.";
+      toast(msg);
+      aposMudanca();
     });
   });
 
-  async function carregarRecentes() {
+  function carregarRecentes() {
+    const recentes = [...estado.lancamentos].sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id - a.id).slice(0, 6);
+    const ul = $("#lista-recentes");
+    if (!recentes.length) {
+      ul.replaceChildren(h("li", { class: "vazio" }, "Nada lançado ainda. O primeiro lançamento aparece aqui."));
+      return;
+    }
+    ul.replaceChildren(...recentes.map((l) => {
+      const cat = estado.catPorId.get(l.categoria_id)?.nome ?? "";
+      const forma = estado.formaPorId.get(l.forma_pagamento_id)?.nome ?? "";
+      const cartao = l.cartao_id ? estado.cartaoPorId.get(l.cartao_id)?.nome : null;
+      const valor = l.condicao === "parcelado"
+        ? (l.valor_modo === "total" ? fmtBRL(l.valor) : `${l.total_parcelas}× ${fmtBRL(l.valor)}`)
+        : fmtBRL(l.valor);
+      const condicao = l.condicao === "fixo" ? "Fixo" : l.condicao === "parcelado" ? `${l.total_parcelas}x` : "À vista";
+      return h("li", {}, h("button", { class: "item item-clicavel", type: "button", onclick: () => abrirLancamento(l) },
+        h("span", { class: "item-titulo" }, l.descricao || cat),
+        h("span", { class: "item-valor " + l.tipo }, `${l.tipo === "despesa" ? "−" : "+"} ${valor}`, h("small", {}, condicao)),
+        h("span", { class: "item-meta" },
+          h("span", {}, fmtData(l.data_base)),
+          l.descricao ? h("span", {}, cat) : null,
+          h("span", {}, cartao ? `${forma} · ${cartao}` : forma),
+          l.pessoa ? h("span", {}, l.pessoa) : null),
+      ));
+    }));
+  }
+
+  /** Abre um lançamento pela sua primeira parcela em aberto (ou a primeira). */
+  async function abrirLancamento(lanc) {
     try {
-      const linhas = await exec(sb.from("transacoes").select("*")
-        .order("created_at", { ascending: false }).order("id", { ascending: false }).limit(6));
-      const ul = $("#lista-recentes");
-      if (!linhas.length) {
-        ul.replaceChildren(h("li", { class: "vazio" }, "Nada lançado ainda. O primeiro lançamento aparece aqui."));
-      } else {
-        ul.replaceChildren(...linhas.map((t) => h("li", {}, itemTransacao(t, true))));
-      }
+      const parcelas = await exec(sb.from("parcelas").select("*").eq("lancamento_id", lanc.id).order("numero"));
+      const alvo = parcelas.find((p) => !p.baixado) || parcelas[0];
+      if (alvo) abrirParcela(alvo);
     } catch (e) { toast(msgErro(e), true); }
   }
 
-  /** Card de um lançamento (usado em Últimos lançamentos e no Extrato). */
-  function itemTransacao(t, mostrarData) {
-    const cat = estado.catPorId.get(t.categoria_id)?.nome ?? "Sem categoria";
-    const forma = estado.formaPorId.get(t.forma_pagamento_id)?.nome ?? "";
-    const titulo = t.descricao || cat;
-    const sinal = t.tipo === "despesa" ? "−" : "+";
-    return h("button", { class: "item item-clicavel", type: "button", onclick: () => abrirEdicao(t) },
-      h("span", { class: "item-titulo" }, titulo),
-      h("span", { class: "item-valor " + t.tipo }, `${sinal} ${fmtBRL(t.valor)}`,
-        t.total_parcelas > 1 ? h("small", {}, `parcela ${t.parcela_atual}/${t.total_parcelas}`) : null),
-      h("span", { class: "item-meta" },
-        mostrarData ? h("span", {}, fmtData(t.data)) : null,
-        t.descricao ? h("span", {}, cat) : null,
-        forma ? h("span", {}, forma) : null,
-        t.origem_destino ? h("span", {}, t.origem_destino) : null,
-        NATUREZA_CURTA[t.natureza] ? h("span", { class: "etiqueta" }, NATUREZA_CURTA[t.natureza]) : null,
-      ),
-    );
+  // ---------------------------------------------------------------------------
+  // Modal da parcela: baixar, desfazer, editar, excluir
+  // ---------------------------------------------------------------------------
+  const modalP = $("#modal-parcela");
+
+  function abrirParcela(p) {
+    const lanc = lancDe(p);
+    if (!lanc) return;
+    estado.parcela = p;
+    const cat = estado.catPorId.get(lanc.categoria_id)?.nome ?? "";
+    const forma = estado.formaPorId.get(lanc.forma_pagamento_id)?.nome ?? "";
+    const cartao = p.cartao_id ? estado.cartaoPorId.get(p.cartao_id) : null;
+    const st = situacaoParcela(p);
+    const pagar = lanc.tipo === "despesa";
+
+    $("#mp-titulo").textContent = lanc.descricao || cat;
+    const cond = lanc.condicao === "fixo" ? "Conta fixa" : lanc.condicao === "parcelado" ? `Parcela ${p.numero} de ${lanc.total_parcelas}` : "À vista";
+    $("#mp-sub").textContent = `${pagar ? "A pagar" : "A receber"} · ${cond}`;
+    $("#mp-valor").textContent = fmtBRL(valorEfetivo(p));
+    $("#mp-valor").className = "detalhe-valor " + lanc.tipo;
+    $("#mp-situacao").textContent = cartao && !p.baixado ? `Na fatura do ${cartao.nome} que vence em ${fmtData(p.vencimento)}` : st.texto;
+    $("#mp-situacao").className = "situacao " + (st.classe || "");
+
+    const linhas = [
+      ["Vencimento", fmtData(p.vencimento)],
+      ["Categoria", cat],
+      ["Forma de pagamento", cartao ? `${forma} (${cartao.nome})` : forma],
+      [pagar ? "Onde / pra quem" : "De quem", lanc.pessoa],
+      ["Observação", lanc.observacao],
+      ["Lançado em", fmtData(lanc.data_lancamento)],
+    ];
+    if (p.baixado) {
+      linhas.push([pagar ? "Pago em" : "Recebido em", fmtData(p.data_baixa)]);
+      if (p.valor_baixa != null) linhas.push(["Valor original", fmtBRL(p.valor)]);
+      const fb = estado.formaPorId.get(p.forma_baixa_id)?.nome;
+      if (fb) linhas.push(["Pago com", fb]);
+    }
+    $("#mp-detalhes").replaceChildren(...linhas.filter(([, v]) => v).flatMap(([k, v]) => [h("dt", {}, k), h("dd", {}, v)]));
+
+    $("#mp-baixar").textContent = pagar ? "Pagar" : "Receber";
+    $("#mp-baixar").hidden = p.baixado || !!cartao;
+    $("#mp-desfazer").hidden = !p.baixado || !!cartao;
+    $("#mp-ver-fatura").hidden = !cartao;
+    $("#mp-form-baixa").hidden = true;
+    $("#mp-form-editar").hidden = true;
+    $("#mp-acoes").hidden = false;
+    if (!modalP.open) modalP.showModal();
   }
 
-  // ---------------------------------------------------------------------------
-  // Editar / excluir lançamento
-  // ---------------------------------------------------------------------------
-  const modalT = $("#modal-transacao");
-  const tipoEdicao = () => modalT.querySelector('input[name="t-tipo"]:checked').value;
-
-  function abrirEdicao(t) {
-    estado.editando = t;
-    modalT.querySelector(`input[name="t-tipo"][value="${t.tipo}"]`).checked = true;
-    $("#t-valor").value = valorParaCampo(t.valor);
-    $("#t-data").value = t.data;
-    preencherSelect($("#t-categoria"), categoriasDoTipo(t.tipo), t.categoria_id);
-    preencherSelect($("#t-forma"), estado.formas, t.forma_pagamento_id);
-    $("#t-descricao").value = t.descricao || "";
-    $("#t-origem").value = t.origem_destino || "";
-    renderNatureza($("#t-natureza"), "t-nat", t.natureza);
-    const aviso = $("#t-aviso-parcela");
-    aviso.hidden = !(t.total_parcelas > 1);
-    aviso.textContent = `Parcela ${t.parcela_atual} de ${t.total_parcelas}. A alteração vale só para esta parcela.`;
-    modalT.showModal();
-  }
-
-  modalT.querySelectorAll('input[name="t-tipo"]').forEach((r) => r.addEventListener("change", () => {
-    preencherSelect($("#t-categoria"), categoriasDoTipo(tipoEdicao()));
-  }));
-  $("#t-forma").addEventListener("change", () => sugerirNatureza($("#t-natureza"), $("#t-forma"), tipoEdicao()));
-
-  $("#form-transacao").addEventListener("submit", (ev) => {
+  // Baixa
+  $("#mp-baixar").addEventListener("click", () => {
+    const p = estado.parcela, lanc = lancDe(p);
+    $("#mp-baixa-titulo").textContent = lanc.tipo === "despesa" ? "Confirmar pagamento" : "Confirmar recebimento";
+    $("#mp-b-data").value = hojeISO();
+    $("#mp-b-valor").value = valorParaCampo(p.valor);
+    const formaLanc = estado.formaPorId.get(lanc.forma_pagamento_id);
+    preencherSelect($("#mp-b-forma"), formasImediatas(), formaSugerida(formaLanc?.id));
+    $("#mp-form-baixa").hidden = false;
+    $("#mp-acoes").hidden = true;
+  });
+  $("#mp-b-cancelar").addEventListener("click", () => abrirParcela(estado.parcela));
+  $("#mp-form-baixa").addEventListener("submit", (ev) => {
     ev.preventDefault();
-    const t = estado.editando;
-    const valor = lerValor($("#t-valor").value);
+    const p = estado.parcela;
+    const valor = lerValor($("#mp-b-valor").value);
+    const data = $("#mp-b-data").value;
     if (!(valor > 0)) { toast("Digite um valor maior que zero.", true); return; }
-    if (!$("#t-data").value || !$("#t-categoria").value) { toast("Preencha data e categoria.", true); return; }
-    acao(ev.submitter, async () => {
-      await exec(sb.from("transacoes").update({
-        tipo: tipoEdicao(), valor, data: $("#t-data").value,
-        categoria_id: Number($("#t-categoria").value),
-        forma_pagamento_id: Number($("#t-forma").value),
-        descricao: $("#t-descricao").value.trim(),
-        origem_destino: $("#t-origem").value.trim(),
-        natureza: lerNatureza($("#t-natureza")),
-      }).eq("id", t.id));
-      modalT.close();
-      toast("Lançamento atualizado.");
-      lancamentosMudaram();
+    if (!data) { toast("Escolha a data.", true); return; }
+    acao($("#mp-b-confirmar"), async () => {
+      await exec(sb.from("parcelas").update({
+        baixado: true, data_baixa: data,
+        valor_baixa: valor === Number(p.valor) ? null : valor,
+        forma_baixa_id: Number($("#mp-b-forma").value) || null,
+      }).eq("id", p.id));
+      modalP.close();
+      toast(lancDe(p).tipo === "despesa" ? "Pagamento registrado." : "Recebimento registrado.");
+      aposMudanca();
+    });
+  });
+  $("#mp-desfazer").addEventListener("click", () => {
+    const p = estado.parcela;
+    acao($("#mp-desfazer"), async () => {
+      await exec(sb.from("parcelas").update({ baixado: false, data_baixa: null, valor_baixa: null, forma_baixa_id: null }).eq("id", p.id));
+      modalP.close();
+      toast("Baixa desfeita. A parcela voltou pra em aberto.");
+      aposMudanca();
     });
   });
 
-  $("#t-excluir").addEventListener("click", async () => {
-    const t = estado.editando;
-    const parcelado = t.total_parcelas > 1;
-    const texto = parcelado
-      ? `Excluir as ${t.total_parcelas} parcelas desta compra? Todas somem do extrato.`
-      : "Excluir este lançamento?";
-    modalT.close();
-    if (!(await confirmar(texto))) { modalT.showModal(); return; }
-    acao(null, async () => {
-      // Apagar a parcela 1 apaga as demais (on delete cascade no banco).
-      await exec(sb.from("transacoes").delete().eq("id", t.transacao_pai_id ?? t.id));
-      toast(parcelado ? "Parcelas excluídas." : "Lançamento excluído.");
-      lancamentosMudaram();
+  // Editar
+  $("#mp-editar").addEventListener("click", () => {
+    const p = estado.parcela, lanc = lancDe(p);
+    $("#mp-e-valor").value = valorParaCampo(p.valor);
+    $("#mp-e-venc").value = p.vencimento;
+    $("#mp-e-proximas").checked = false;
+    $("#mp-e-proximas-wrap").hidden = lanc.condicao === "avista";
+    $("#mp-e-desc").value = lanc.descricao;
+    $("#mp-e-pessoa").value = lanc.pessoa;
+    $("#mp-e-obs").value = lanc.observacao;
+    preencherSelect($("#mp-e-categoria"), categoriasDoTipo(lanc.tipo), lanc.categoria_id);
+    $("#mp-form-editar").hidden = false;
+    $("#mp-acoes").hidden = true;
+  });
+  $("#mp-e-cancelar").addEventListener("click", () => abrirParcela(estado.parcela));
+  $("#mp-form-editar").addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    const p = estado.parcela, lanc = lancDe(p);
+    const valor = lerValor($("#mp-e-valor").value);
+    const venc = $("#mp-e-venc").value;
+    if (!(valor > 0)) { toast("Digite um valor maior que zero.", true); return; }
+    if (!venc) { toast("Escolha o vencimento.", true); return; }
+    const proximas = !$("#mp-e-proximas-wrap").hidden && $("#mp-e-proximas").checked;
+    acao($("#mp-e-salvar"), async () => {
+      await exec(sb.from("parcelas").update({ valor, vencimento: venc }).eq("id", p.id));
+      if (proximas) {
+        await exec(sb.from("parcelas").update({ valor }).eq("lancamento_id", lanc.id).gt("numero", p.numero).eq("baixado", false));
+      }
+      const mudancas = {
+        descricao: $("#mp-e-desc").value.trim(),
+        pessoa: $("#mp-e-pessoa").value.trim(),
+        observacao: $("#mp-e-obs").value.trim(),
+        categoria_id: Number($("#mp-e-categoria").value),
+      };
+      if (proximas && lanc.condicao === "fixo") mudancas.valor = valor; // as próximas geradas usam o valor novo
+      await exec(sb.from("lancamentos").update(mudancas).eq("id", lanc.id));
+      modalP.close();
+      toast(proximas ? "Alterações salvas, inclusive nas próximas parcelas." : "Alterações salvas.");
+      aposMudanca();
     });
+  });
+
+  // Excluir
+  $("#mp-excluir").addEventListener("click", async () => {
+    const p = estado.parcela, lanc = lancDe(p);
+    const dlg = $("#modal-excluir");
+    const varias = lanc.condicao !== "avista";
+    $("#mx-texto").textContent = varias
+      ? `“${lanc.descricao || "Lançamento"}” tem várias parcelas. O que você quer excluir?`
+      : `Excluir “${lanc.descricao || "este lançamento"}”?`;
+    $("#mx-parcela").hidden = !varias;
+    $("#mx-proximas").hidden = !varias;
+    $("#mx-proximas").textContent = lanc.condicao === "fixo" ? "Esta e as próximas (encerra a conta fixa)" : "Esta e as próximas em aberto";
+    $("#mx-tudo").textContent = varias ? "O lançamento inteiro" : "Excluir";
+    modalP.close();
+    dlg.returnValue = "";
+    dlg.showModal();
+    const escolha = await new Promise((ok) => dlg.addEventListener("close", () => ok(dlg.returnValue), { once: true }));
+    if (!["parcela", "proximas", "tudo"].includes(escolha)) { abrirParcela(p); return; }
+    acao(null, async () => {
+      if (escolha === "tudo") {
+        await exec(sb.from("lancamentos").delete().eq("id", lanc.id));
+        toast("Lançamento excluído.");
+      } else if (escolha === "parcela") {
+        await exec(sb.from("parcelas").delete().eq("id", p.id));
+        toast("Parcela excluída.");
+      } else {
+        await exec(sb.from("parcelas").delete().eq("lancamento_id", lanc.id).gte("numero", p.numero).eq("baixado", false));
+        if (lanc.condicao === "fixo") await exec(sb.from("lancamentos").update({ ativo: false }).eq("id", lanc.id));
+        toast(lanc.condicao === "fixo" ? "Conta fixa encerrada a partir desta parcela." : "Parcelas excluídas.");
+      }
+      aposMudanca();
+    });
+  });
+
+  $("#mp-ver-fatura").addEventListener("click", async () => {
+    const p = estado.parcela;
+    try {
+      const parcelas = await exec(sb.from("parcelas").select("*").eq("cartao_id", p.cartao_id).eq("vencimento", p.vencimento).order("id"));
+      modalP.close();
+      const f = agrupar(parcelas)[0];
+      if (f) abrirFatura(f);
+    } catch (e) { toast(msgErro(e), true); }
   });
 
   document.querySelectorAll("[data-fechar]").forEach((b) =>
     b.addEventListener("click", () => b.closest("dialog").close()));
 
   // ---------------------------------------------------------------------------
-  // Contas a pagar / receber
+  // Modal da fatura
   // ---------------------------------------------------------------------------
-  function statusConta(c) {
-    if (!c.ativa) return { texto: "Paga", classe: "paga", alerta: false };
-    const dias = diasEntre(hojeISO(), c.proxima_vencimento);
-    if (dias < 0) return { texto: `Vencida há ${-dias} ${plural(-dias, "dia", "dias")}`, classe: "vencida", alerta: true };
-    if (dias === 0) return { texto: "Vence hoje", classe: "em-breve", alerta: true };
-    if (dias === 1) return { texto: "Vence amanhã", classe: "em-breve", alerta: true };
-    if (dias <= DIAS_ALERTA) return { texto: `Vence em ${dias} dias`, classe: "em-breve", alerta: true };
-    return { texto: `Vence em ${dias} dias`, classe: "", alerta: false };
+  const modalF = $("#modal-fatura");
+
+  function abrirFatura(f) {
+    estado.fatura = f;
+    const st = situacaoFatura(f);
+    $("#mf-titulo").textContent = `Fatura ${f.cartao.nome}`;
+    $("#mf-sub").textContent = `Vence em ${fmtData(f.vencimento)} · fecha em ${fmtData(fechamentoFatura(f.cartao, f.vencimento))}`;
+    $("#mf-total").textContent = fmtBRL(f.valor);
+    $("#mf-situacao").textContent = st.texto;
+    $("#mf-situacao").className = "situacao " + (st.classe || "");
+    $("#mf-itens").replaceChildren(...f.parcelas.map((p) => {
+      const lanc = lancDe(p);
+      const cat = estado.catPorId.get(lanc.categoria_id)?.nome ?? "";
+      const rotulo = rotuloParcela(p);
+      return h("li", {}, h("button", { class: "item item-clicavel", type: "button", onclick: () => { modalF.close(); abrirParcela(p); } },
+        h("span", { class: "item-titulo" }, lanc.descricao || cat),
+        h("span", { class: "item-valor despesa" }, fmtBRL(valorEfetivo(p)), rotulo ? h("small", {}, rotulo) : null),
+        h("span", { class: "item-meta" }, h("span", {}, `compra ${fmtData(lanc.data_base)}`), lanc.descricao ? h("span", {}, cat) : null)));
+    }));
+    const aberta = f.abertas.length > 0;
+    $("#mf-pagar").hidden = !aberta;
+    $("#mf-confirmar").hidden = !aberta;
+    $("#mf-confirmar").textContent = `Pagar ${fmtBRL(soma(f.abertas, valorEfetivo))}`;
+    $("#mf-desfazer").hidden = aberta;
+    $("#mf-data").value = hojeISO();
+    preencherSelect($("#mf-forma"), formasImediatas(), formaSugerida());
+    if (!modalF.open) modalF.showModal();
   }
+
+  $("#mf-form").addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    const f = estado.fatura;
+    const data = $("#mf-data").value;
+    if (!data) { toast("Escolha a data do pagamento.", true); return; }
+    acao($("#mf-confirmar"), async () => {
+      await exec(sb.from("parcelas").update({
+        baixado: true, data_baixa: data, valor_baixa: null, forma_baixa_id: Number($("#mf-forma").value) || null,
+      }).eq("cartao_id", f.cartao.id).eq("vencimento", f.vencimento).eq("baixado", false));
+      modalF.close();
+      toast(`Fatura do ${f.cartao.nome} paga.`);
+      aposMudanca();
+    });
+  });
+  $("#mf-desfazer").addEventListener("click", () => {
+    const f = estado.fatura;
+    acao($("#mf-desfazer"), async () => {
+      await exec(sb.from("parcelas").update({ baixado: false, data_baixa: null, valor_baixa: null, forma_baixa_id: null })
+        .eq("cartao_id", f.cartao.id).eq("vencimento", f.vencimento));
+      modalF.close();
+      toast("Pagamento da fatura desfeito.");
+      aposMudanca();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Contas a pagar / a receber
+  // ---------------------------------------------------------------------------
+  document.querySelectorAll('input[name="c-lado"], input[name="c-situacao"]').forEach((r) =>
+    r.addEventListener("change", carregarContas));
+  $("#c-mes-ant").addEventListener("click", () => mudarMes(estado.contas, -1, carregarContas));
+  $("#c-mes-prox").addEventListener("click", () => mudarMes(estado.contas, 1, carregarContas));
 
   async function carregarContas() {
+    const c = estado.contas;
+    c.lado = radio("c-lado");
+    c.situacao = radio("c-situacao");
+    $("#c-rotulo-baixado").textContent = c.lado === "despesa" ? "Pagos" : "Recebidos";
+    $("#c-mes-nav").hidden = c.situacao === "atraso";
+    $("#c-mes-titulo").textContent = nomeMes(c.ano, c.mes);
+    let parcelas, abertas;
     try {
-      estado.contas = await exec(sb.from("contas_programadas").select("*").order("proxima_vencimento"));
+      abertas = await parcelasAbertas();
+      parcelas = c.situacao === "atraso" ? abertas
+        : await parcelasDoPeriodo(dataNoMes(c.ano, c.mes, 1), dataNoMes(c.ano, c.mes, 1, 1));
     } catch (e) { toast(msgErro(e), true); return; }
-    const pendentes = estado.contas.filter((c) => statusConta(c).alerta).length;
-    const badge = $("#badge-contas");
-    badge.hidden = pendentes === 0;
-    badge.textContent = pendentes;
-    badge.setAttribute("aria-label", `${pendentes} ${plural(pendentes, "conta precisa", "contas precisam")} de atenção`);
-    if (estado.view === "contas") renderContas();
+    atualizarBadge(abertas);
+    const filtro = {
+      aberto: (p) => !p.baixado,
+      atraso: (p) => emAtraso(p),
+      baixado: (p) => p.baixado,
+      tudo: () => true,
+    }[c.situacao];
+    const daqui = parcelas.filter((p) => lancDe(p)?.tipo === c.lado && filtro(p));
+    c.entradas = agrupar(daqui);
+    c.parcelas = daqui;
+    const total = soma(daqui, valorEfetivo);
+    $("#c-total").textContent = daqui.length ? `${c.entradas.length} ${plural(c.entradas.length, "item", "itens")} · ${fmtBRL(total)}` : "";
+    const vazio = {
+      aberto: c.lado === "despesa" ? "Nada a pagar neste mês." : "Nada a receber neste mês.",
+      atraso: "Nada em atraso.",
+      baixado: c.lado === "despesa" ? "Nada pago neste mês." : "Nada recebido neste mês.",
+      tudo: "Nenhum lançamento neste mês.",
+    }[c.situacao];
+    listaOuVazio($("#lista-contas"), c.entradas, vazio);
   }
 
-  function renderContas() {
-    const mostrarPagas = $("#c-mostrar-pagas").checked;
-    const lista = estado.contas.filter((c) => mostrarPagas || c.ativa);
-    const ul = $("#lista-contas");
-    if (!lista.length) {
-      ul.replaceChildren(h("li", { class: "vazio" },
-        h("div", {}, "Nenhuma conta cadastrada. Cadastre internet, aluguel ou assinaturas pra acompanhar os vencimentos."),
-        h("button", { class: "btn btn-primario", type: "button", onclick: () => abrirConta() }, "Nova conta")));
-      return;
-    }
-    ul.replaceChildren(...lista.map((c) => {
-      const st = statusConta(c);
-      const cat = estado.catPorId.get(c.categoria_id)?.nome ?? "";
-      const forma = estado.formaPorId.get(c.forma_pagamento_id)?.nome ?? "";
-      const pagar = c.tipo === "despesa" ? "Pagar" : "Receber";
-      return h("li", { class: `item conta ${st.classe}` },
-        h("span", { class: "item-titulo" }, c.descricao),
-        h("span", { class: "item-valor " + c.tipo }, fmtBRL(c.valor), h("small", {}, c.tipo === "despesa" ? "a pagar" : "a receber")),
-        h("span", { class: "item-meta" },
-          h("span", { class: "conta-status" }, st.texto),
-          h("span", {}, fmtData(c.proxima_vencimento)),
-          cat ? h("span", {}, cat) : null,
-          forma ? h("span", {}, forma) : null,
-          c.recorrente ? h("span", { class: "etiqueta" }, "Todo mês") : null),
-        h("div", { class: "conta-acoes" },
-          c.ativa ? h("button", { class: "btn btn-primario btn-pequeno", type: "button", onclick: () => abrirPagar(c) }, pagar) : null,
-          h("button", { class: "btn btn-pequeno", type: "button", onclick: () => abrirConta(c) }, "Editar"),
-          h("button", { class: "btn btn-perigo btn-pequeno", type: "button", onclick: () => excluirConta(c) }, "Excluir")),
-      );
-    }));
-  }
-
-  $("#c-mostrar-pagas").addEventListener("change", renderContas);
-  $("#btn-nova-conta").addEventListener("click", () => abrirConta());
-
-  const modalC = $("#modal-conta");
-  const tipoConta = () => modalC.querySelector('input[name="c-tipo"]:checked').value;
-
-  function abrirConta(c = null) {
-    estado.contaEditando = c;
-    $("#c-titulo").textContent = c ? "Editar conta" : "Nova conta";
-    const tipo = c?.tipo ?? "despesa";
-    modalC.querySelector(`input[name="c-tipo"][value="${tipo}"]`).checked = true;
-    $("#c-descricao").value = c?.descricao ?? "";
-    $("#c-valor").value = c ? valorParaCampo(c.valor) : "";
-    $("#c-vencimento").value = c?.proxima_vencimento ?? hojeISO();
-    $("#c-recorrente").checked = c ? c.recorrente : true;
-    preencherSelect($("#c-categoria"), categoriasDoTipo(tipo), c?.categoria_id);
-    preencherSelect($("#c-forma"), estado.formas, c?.forma_pagamento_id);
-    modalC.showModal();
-  }
-  modalC.querySelectorAll('input[name="c-tipo"]').forEach((r) => r.addEventListener("change", () =>
-    preencherSelect($("#c-categoria"), categoriasDoTipo(tipoConta()))));
-
-  $("#form-conta").addEventListener("submit", (ev) => {
-    ev.preventDefault();
-    const descricao = $("#c-descricao").value.trim();
-    const valor = lerValor($("#c-valor").value);
-    if (!descricao) { toast("Digite uma descrição.", true); return; }
-    if (!(valor > 0)) { toast("Digite um valor maior que zero.", true); return; }
-    if (!$("#c-vencimento").value || !$("#c-categoria").value) { toast("Preencha vencimento e categoria.", true); return; }
-    const dados = {
-      descricao, valor, tipo: tipoConta(),
-      categoria_id: Number($("#c-categoria").value),
-      forma_pagamento_id: Number($("#c-forma").value),
-      proxima_vencimento: $("#c-vencimento").value,
-      recorrente: $("#c-recorrente").checked,
-    };
-    acao(ev.submitter, async () => {
-      const c = estado.contaEditando;
-      if (c) await exec(sb.from("contas_programadas").update(dados).eq("id", c.id));
-      else await exec(sb.from("contas_programadas").insert({ ...dados, ativa: true }));
-      modalC.close();
-      toast(c ? "Conta atualizada." : "Conta cadastrada.");
-      carregarContas();
-    });
+  $("#btn-csv-contas").addEventListener("click", () => {
+    const c = estado.contas;
+    if (!c.parcelas?.length) { toast("Não há nada nesta lista pra exportar.", true); return; }
+    const sufixo = c.situacao === "atraso" ? "em-atraso" : `${c.ano}-${pad(c.mes)}`;
+    baixarCSV(`${c.lado === "despesa" ? "pagar" : "receber"}_${c.situacao}_${sufixo}.csv`, linhasCSV(c.parcelas));
   });
 
-  async function excluirConta(c) {
-    if (!(await confirmar(`Excluir a conta “${c.descricao}”? Os lançamentos já feitos continuam no extrato.`))) return;
-    acao(null, async () => {
-      await exec(sb.from("contas_programadas").delete().eq("id", c.id));
-      toast("Conta excluída.");
-      carregarContas();
-    });
+  function linhasCSV(parcelas) {
+    const cab = ["Vencimento", "Tipo", "Descrição", "Categoria", "Onde / quem", "Forma de pagamento", "Cartão",
+      "Parcela", "Valor", "Situação", "Data da baixa", "Valor pago", "Observação"];
+    return [cab, ...parcelas.map((p) => {
+      const l = lancDe(p);
+      return [fmtData(p.vencimento), l.tipo === "despesa" ? "A pagar" : "A receber", l.descricao,
+        estado.catPorId.get(l.categoria_id)?.nome ?? "", l.pessoa, estado.formaPorId.get(l.forma_pagamento_id)?.nome ?? "",
+        p.cartao_id ? estado.cartaoPorId.get(p.cartao_id)?.nome ?? "" : "", rotuloParcela(p) || "À vista",
+        fmtNumeroCSV(p.valor), p.baixado ? (l.tipo === "despesa" ? "Pago" : "Recebido") : emAtraso(p) ? "Em atraso" : "Em aberto",
+        fmtData(p.data_baixa), p.baixado ? fmtNumeroCSV(valorEfetivo(p)) : "", l.observacao];
+    })];
   }
-
-  const modalP = $("#modal-pagar");
-  function abrirPagar(c) {
-    estado.contaPagando = c;
-    const pagar = c.tipo === "despesa";
-    $("#p-titulo").textContent = pagar ? "Confirmar pagamento" : "Confirmar recebimento";
-    $("#p-confirmar").textContent = pagar ? "Confirmar pagamento" : "Confirmar recebimento";
-    $("#p-resumo").textContent = `${c.descricao}, vencimento ${fmtData(c.proxima_vencimento)}`;
-    $("#p-valor").value = valorParaCampo(c.valor);
-    $("#p-data").value = hojeISO();
-    preencherSelect($("#p-forma"), estado.formas, c.forma_pagamento_id);
-    renderNatureza($("#p-natureza"), "p-nat", "normal");
-    sugerirNatureza($("#p-natureza"), $("#p-forma"), c.tipo);
-    modalP.showModal();
-  }
-  $("#p-forma").addEventListener("change", () =>
-    sugerirNatureza($("#p-natureza"), $("#p-forma"), estado.contaPagando?.tipo));
-
-  $("#form-pagar").addEventListener("submit", (ev) => {
-    ev.preventDefault();
-    const c = estado.contaPagando;
-    const valor = lerValor($("#p-valor").value);
-    const data = $("#p-data").value;
-    if (!(valor > 0)) { toast("Digite um valor maior que zero.", true); return; }
-    if (!data) { toast("Escolha a data.", true); return; }
-    acao(ev.submitter, async () => {
-      await inserirTransacao({
-        data, tipo: c.tipo, valor,
-        categoria_id: c.categoria_id,
-        forma_pagamento_id: Number($("#p-forma").value),
-        descricao: c.descricao, origem_destino: "",
-        natureza: lerNatureza($("#p-natureza")),
-      });
-      let msg;
-      if (c.recorrente) {
-        const proximo = addMesesISO(c.proxima_vencimento, 1);
-        await exec(sb.from("contas_programadas").update({ proxima_vencimento: proximo }).eq("id", c.id));
-        msg = `Registrado. Próximo vencimento: ${fmtData(proximo)}.`;
-      } else {
-        await exec(sb.from("contas_programadas").update({ ativa: false }).eq("id", c.id));
-        msg = "Registrado. A conta saiu da lista de pendentes.";
-      }
-      modalP.close();
-      toast(msg);
-      estado.rel.cacheAno = null;
-      carregarContas();
-    });
-  });
-
-  // ---------------------------------------------------------------------------
-  // Regras de soma (iguais às da versão desktop)
-  //  - Totais / saldo / mês a mês: ignoram "compra no crédito" (o dinheiro só
-  //    sai quando a fatura é paga).
-  //  - Por categoria: ignora "pagamento de fatura" (as compras já foram
-  //    categorizadas uma a uma).
-  // ---------------------------------------------------------------------------
-  function totaisCaixa(linhas) {
-    let receitas = 0, despesas = 0;
-    for (const t of linhas) {
-      if (t.natureza === "credito_informativo") continue;
-      if (t.tipo === "receita") receitas += Number(t.valor); else despesas += Number(t.valor);
-    }
-    return { receitas, despesas, saldo: receitas - despesas };
-  }
-  function somaPorCategoria(linhas, tipo) {
-    const mapa = new Map();
-    for (const t of linhas) {
-      if (t.tipo !== tipo || t.natureza === "pagamento_fatura") continue;
-      mapa.set(t.categoria_id, (mapa.get(t.categoria_id) || 0) + Number(t.valor));
-    }
-    const total = [...mapa.values()].reduce((a, b) => a + b, 0);
-    const itens = [...mapa.entries()]
-      .map(([id, valor]) => ({ nome: estado.catPorId.get(id)?.nome ?? "Sem categoria", valor, pct: total ? (valor / total) * 100 : 0 }))
-      .sort((a, b) => b.valor - a.valor);
-    return { itens, total };
-  }
-  function renderResumo(alvo, { receitas, despesas, saldo }) {
-    alvo.replaceChildren(
-      h("div", { class: "receita" }, h("span", {}, "Receitas"), h("strong", {}, fmtBRL(receitas))),
-      h("div", { class: "despesa" }, h("span", {}, "Despesas"), h("strong", {}, fmtBRL(despesas))),
-      h("div", { class: saldo < 0 ? "despesa" : "receita" }, h("span", {}, "Saldo"), h("strong", {}, fmtBRL(saldo))),
-    );
-  }
-
-  // ---------------------------------------------------------------------------
-  // Extrato
-  // ---------------------------------------------------------------------------
-  function mudarMesExtrato(delta) {
-    const iso = addMesesISO(`${estado.extrato.ano}-${pad(estado.extrato.mes)}-01`, delta);
-    const [a, m] = partesISO(iso);
-    estado.extrato.ano = a; estado.extrato.mes = m;
-    carregarExtrato();
-  }
-  $("#e-mes-ant").addEventListener("click", () => mudarMesExtrato(-1));
-  $("#e-mes-prox").addEventListener("click", () => mudarMesExtrato(1));
-
-  async function carregarExtrato() {
-    const { ano, mes } = estado.extrato;
-    const ini = `${ano}-${pad(mes)}-01`;
-    const fim = addMesesISO(ini, 1);
-    const nomeMes = `${MESES[mes - 1].charAt(0).toUpperCase()}${MESES[mes - 1].slice(1)} ${ano}`;
-    $("#e-mes-titulo").textContent = nomeMes;
-    let linhas;
-    try {
-      linhas = await exec(sb.from("transacoes").select("*").gte("data", ini).lt("data", fim)
-        .order("data", { ascending: false }).order("id", { ascending: false }));
-    } catch (e) { toast(msgErro(e), true); return; }
-    estado.extrato.linhas = linhas;
-    renderResumo($("#e-resumo"), totaisCaixa(linhas));
-
-    const alvo = $("#lista-extrato");
-    if (!linhas.length) {
-      alvo.replaceChildren(h("div", { class: "vazio" },
-        h("div", {}, `Nenhum lançamento em ${MESES[mes - 1]} de ${ano}.`),
-        h("button", { class: "btn btn-primario", type: "button", onclick: () => mostrarView("lancar") }, "Lançar agora")));
-      return;
-    }
-    const blocos = [];
-    let diaAtual = null, ul = null;
-    for (const t of linhas) {
-      if (t.data !== diaAtual) {
-        diaAtual = t.data;
-        ul = h("ul", { class: "lista" });
-        blocos.push(h("h3", { class: "dia" }, fmtDiaLongo(t.data)), ul);
-      }
-      ul.append(h("li", {}, itemTransacao(t, false)));
-    }
-    alvo.replaceChildren(...blocos);
-  }
-
-  $("#btn-csv-extrato").addEventListener("click", () => {
-    const { ano, mes, linhas } = estado.extrato;
-    if (!linhas.length) { toast("Não há lançamentos nesse mês pra exportar.", true); return; }
-    const cab = ["Data", "Tipo", "Valor", "Categoria", "Forma de pagamento", "Descrição", "Onde / de quem", "Parcela", "Natureza"];
-    const corpo = [...linhas].reverse().map((t) => [
-      fmtData(t.data), t.tipo === "despesa" ? "Despesa" : "Receita", fmtNumeroCSV(t.valor),
-      estado.catPorId.get(t.categoria_id)?.nome ?? "", estado.formaPorId.get(t.forma_pagamento_id)?.nome ?? "",
-      t.descricao, t.origem_destino, t.total_parcelas > 1 ? `${t.parcela_atual}/${t.total_parcelas}` : "",
-      NATUREZAS.find((n) => n.valor === t.natureza)?.titulo ?? t.natureza,
-    ]);
-    baixarCSV(`extrato_${ano}-${pad(mes)}.csv`, [cab, ...corpo]);
-  });
 
   // ---------------------------------------------------------------------------
   // Relatórios
@@ -815,42 +1142,66 @@
 
   function lerFiltrosRelatorio() {
     const r = estado.rel;
-    r.periodo = document.querySelector('input[name="r-periodo"]:checked').value;
-    r.tipo = document.querySelector('input[name="r-tipo"]:checked').value;
+    r.periodo = radio("r-periodo");
+    r.tipo = radio("r-tipo");
+    r.situacao = $("#r-situacao").value;
     r.mes = Number($("#r-mes").value) || r.mes;
     const ano = parseInt($("#r-ano").value, 10);
     if (ano >= 2000 && ano <= 2100) r.ano = ano;
   }
   document.querySelectorAll('input[name="r-periodo"], input[name="r-tipo"]').forEach((el) =>
     el.addEventListener("change", () => { lerFiltrosRelatorio(); carregarRelatorio(); }));
-  $("#r-mes").addEventListener("change", () => { lerFiltrosRelatorio(); carregarRelatorio(); });
-  $("#r-ano").addEventListener("change", () => { lerFiltrosRelatorio(); carregarRelatorio(); });
+  ["#r-mes", "#r-ano", "#r-situacao"].forEach((s) => $(s).addEventListener("change", () => { lerFiltrosRelatorio(); carregarRelatorio(); }));
+
+  function passaSituacao(p, s) {
+    if (s === "baixado") return p.baixado;
+    if (s === "aberto") return !p.baixado;
+    if (s === "atraso") return emAtraso(p);
+    return true;
+  }
 
   async function carregarRelatorio() {
     const r = estado.rel;
     $("#r-mes").value = String(r.mes);
     $("#r-ano").value = String(r.ano);
+    $("#r-situacao").value = r.situacao;
     $("#r-mes").hidden = r.periodo !== "mensal";
     if (r.cacheAno !== r.ano) {
       try {
-        r.linhasAno = await exec(sb.from("transacoes").select("*")
-          .gte("data", `${r.ano}-01-01`).lt("data", `${r.ano + 1}-01-01`).order("data"));
+        r.parcelasAno = (await parcelasDoPeriodo(`${r.ano}-01-01`, `${r.ano + 1}-01-01`)).filter(lancDe);
         r.cacheAno = r.ano;
       } catch (e) { toast(msgErro(e), true); return; }
     }
     const prefixoMes = `${r.ano}-${pad(r.mes)}`;
-    const linhas = r.periodo === "mensal" ? r.linhasAno.filter((t) => t.data.startsWith(prefixoMes)) : r.linhasAno;
+    const doAno = r.parcelasAno.filter((p) => passaSituacao(p, r.situacao));
+    const doPeriodo = r.periodo === "mensal" ? doAno.filter((p) => p.vencimento.startsWith(prefixoMes)) : doAno;
     const periodoTxt = r.periodo === "mensal" ? `${MESES[r.mes - 1]} de ${r.ano}` : String(r.ano);
 
-    renderResumo($("#r-resumo"), totaisCaixa(linhas));
+    const receitas = soma(doPeriodo.filter((p) => lancDe(p).tipo === "receita"), valorEfetivo);
+    const despesas = soma(doPeriodo.filter((p) => lancDe(p).tipo === "despesa"), valorEfetivo);
+    $("#r-resumo").replaceChildren(
+      h("div", { class: "receita" }, h("span", {}, "Receitas"), h("strong", {}, fmtBRL(receitas))),
+      h("div", { class: "despesa" }, h("span", {}, "Despesas"), h("strong", {}, fmtBRL(despesas))),
+      h("div", { class: receitas - despesas < 0 ? "despesa" : "receita" }, h("span", {}, "Saldo"), h("strong", {}, fmtBRL(receitas - despesas))),
+    );
 
-    const { itens } = somaPorCategoria(linhas, r.tipo);
-    r.ultimoRelatorio = { itens, periodoTxt, linhas };
+    const mapa = new Map();
+    const doTipo = doPeriodo.filter((p) => lancDe(p).tipo === r.tipo);
+    for (const p of doTipo) {
+      const id = lancDe(p).categoria_id;
+      mapa.set(id, (mapa.get(id) || 0) + valorEfetivo(p));
+    }
+    const totalTipo = soma([...mapa.values()], (v) => v);
+    const itens = [...mapa.entries()]
+      .map(([id, valor]) => ({ nome: estado.catPorId.get(id)?.nome ?? "Sem categoria", valor, pct: totalTipo ? (valor / totalTipo) * 100 : 0 }))
+      .sort((a, b) => b.valor - a.valor);
+    r.ultimo = { itens, periodoTxt, doPeriodo, receitas, despesas };
+
     $("#r-titulo-categorias").textContent = `${r.tipo === "despesa" ? "Despesas" : "Receitas"} por categoria em ${periodoTxt}`;
     const ul = $("#r-categorias");
     ul.classList.toggle("receita", r.tipo === "receita");
     if (!itens.length) {
-      ul.replaceChildren(h("li", { class: "dica" }, `Nenhuma ${r.tipo} lançada em ${periodoTxt}.`));
+      ul.replaceChildren(h("li", { class: "dica" }, `Nada em ${periodoTxt} com esse filtro.`));
     } else {
       ul.replaceChildren(...itens.map((i) => h("li", {},
         h("span", { class: "cat-nome" }, i.nome),
@@ -860,16 +1211,15 @@
     }
 
     $("#r-titulo-evolucao").textContent = `Receitas e despesas mês a mês em ${r.ano}`;
-    desenharGrafico(r.linhasAno);
+    desenharGrafico(doAno);
   }
 
-  function desenharGrafico(linhasAno) {
+  function desenharGrafico(parcelas) {
     if (!window.Chart) return;
     const rec = Array(12).fill(0), desp = Array(12).fill(0);
-    for (const t of linhasAno) {
-      if (t.natureza === "credito_informativo") continue;
-      const m = Number(t.data.slice(5, 7)) - 1;
-      if (t.tipo === "receita") rec[m] += Number(t.valor); else desp[m] += Number(t.valor);
+    for (const p of parcelas) {
+      const m = Number(p.vencimento.slice(5, 7)) - 1;
+      if (lancDe(p).tipo === "receita") rec[m] += valorEfetivo(p); else desp[m] += valorEfetivo(p);
     }
     const css = getComputedStyle(document.documentElement);
     const cor = (v) => css.getPropertyValue(v).trim();
@@ -901,21 +1251,21 @@
   }
 
   $("#btn-csv-relatorio").addEventListener("click", () => {
-    const rel = estado.rel.ultimoRelatorio;
-    if (!rel) return;
-    const t = totaisCaixa(rel.linhas);
-    const linhas = [["Categoria", "Valor", "Percentual"],
-      ...rel.itens.map((i) => [i.nome, fmtNumeroCSV(i.valor), `${i.pct.toFixed(1).replace(".", ",")}%`]),
-      [], ["Período", rel.periodoTxt],
-      ["Receitas", fmtNumeroCSV(t.receitas)], ["Despesas", fmtNumeroCSV(t.despesas)], ["Saldo", fmtNumeroCSV(t.saldo)]];
+    const u = estado.rel.ultimo;
+    if (!u) return;
     const r = estado.rel;
     const sufixo = r.periodo === "mensal" ? `${r.ano}-${pad(r.mes)}` : `${r.ano}`;
-    baixarCSV(`relatorio_${r.tipo}s_${sufixo}.csv`, linhas);
+    const linhas = [["Categoria", "Valor", "Percentual"],
+      ...u.itens.map((i) => [i.nome, fmtNumeroCSV(i.valor), `${i.pct.toFixed(1).replace(".", ",")}%`]),
+      [], ["Período", u.periodoTxt], ["Situação", $("#r-situacao").selectedOptions[0].textContent],
+      ["Receitas", fmtNumeroCSV(u.receitas)], ["Despesas", fmtNumeroCSV(u.despesas)], ["Saldo", fmtNumeroCSV(u.receitas - u.despesas)],
+      [], ...linhasCSV(u.doPeriodo)];
+    baixarCSV(`relatorio_${r.tipo}s_${r.situacao}_${sufixo}.csv`, linhas);
   });
 
   // Redesenha o gráfico se o celular/PC trocar entre tema claro e escuro.
   window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
-    if (estado.view === "relatorios") desenharGrafico(estado.rel.linhasAno);
+    if (estado.view === "relatorios") carregarRelatorio();
   });
 
   // ---------------------------------------------------------------------------

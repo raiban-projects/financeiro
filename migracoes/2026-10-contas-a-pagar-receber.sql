@@ -1,20 +1,54 @@
 -- =============================================================================
--- Controle Financeiro - schema completo do banco (Supabase / Postgres)
+-- MIGRAÇÃO: modelo de contas a pagar e a receber (outubro/2026)
 --
--- PARA UM PROJETO NOVO (banco vazio). Se você já usa o app, NÃO rode este
--- arquivo: rode o arquivo da pasta "migracoes" indicado no PR/README.
+-- Rode UMA vez no SQL Editor do Supabase, no projeto que já está em uso.
+-- (Pode rodar de novo sem erro, mas não precisa.)
 --
--- Como usar: no painel do Supabase, abra "SQL Editor", cole TODO este arquivo
--- e clique em "Run". Pode rodar de novo sem medo: ele não apaga dados.
---
--- Segurança:
---  - Toda tabela tem user_id e Row Level Security (RLS): cada usuário logado
---    só lê e grava as PRÓPRIAS linhas.
---  - Os vínculos entre tabelas incluem o user_id: um lançamento só pode usar
---    categoria, forma de pagamento e cartão do MESMO dono.
---  - O papel "anon" (visitante sem login) não tem permissão nenhuma.
+-- O que ela faz:
+--   1. APAGA as tabelas antigas "transacoes" e "contas_programadas"
+--      (os lançamentos de teste da versão anterior). Isso não tem volta.
+--   2. MANTÉM suas categorias e formas de pagamento.
+--   3. Dá um tipo pra cada forma de pagamento, pelo nome:
+--        nome com "crédito"/"credito" -> cartão
+--        nome com "boleto"            -> a prazo
+--        o resto                      -> na hora (pix, débito, dinheiro...)
+--      Dá pra mudar depois em Cadastros.
+--   4. Cria "Pix no crédito" (cartão) e "Boleto" (a prazo) pra quem não tem.
+--   5. Cria as tabelas novas: cartões, lançamentos e parcelas, com as
+--      mesmas regras de segurança (RLS, visitante sem acesso).
 -- =============================================================================
 
+-- 1. Tabelas antigas (dados de teste) ------------------------------------------
+drop table if exists public.transacoes cascade;
+drop table if exists public.contas_programadas cascade;
+
+-- 2/3. Ajustes nas tabelas que continuam -------------------------------------
+alter table public.formas_pagamento
+    add column if not exists tipo text not null default 'imediata'
+    check (tipo in ('imediata', 'cartao', 'prazo'));
+
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'categorias_id_user_id_key') then
+    alter table public.categorias add constraint categorias_id_user_id_key unique (id, user_id);
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'formas_pagamento_id_user_id_key') then
+    alter table public.formas_pagamento add constraint formas_pagamento_id_user_id_key unique (id, user_id);
+  end if;
+end $$;
+
+update public.formas_pagamento set tipo = 'cartao'
+ where tipo = 'imediata' and (nome ilike '%crédito%' or nome ilike '%credito%');
+update public.formas_pagamento set tipo = 'prazo'
+ where tipo = 'imediata' and nome ilike '%boleto%';
+
+-- 4. Formas novas pra cada usuário que já usa o app -------------------------
+insert into public.formas_pagamento (user_id, nome, tipo)
+select distinct f.user_id, novo.nome, novo.tipo
+  from public.formas_pagamento f
+ cross join (values ('Pix no crédito', 'cartao'), ('Boleto', 'prazo')) as novo(nome, tipo)
+on conflict (user_id, nome) do nothing;
+
+-- 5. Tabelas novas e segurança (mesmo conteúdo do schema.sql) ---------------
 -- ------------------------------- Cadastros ----------------------------------
 create table if not exists public.categorias (
     id          bigint generated always as identity primary key,

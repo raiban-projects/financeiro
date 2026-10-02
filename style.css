@@ -337,6 +337,10 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
 .linha-form input { flex: 1 1 160px; width: auto; }
 .linha-form select { flex: 0 0 auto; width: auto; }
 .lista-simples { list-style: none; margin: 0; padding: 0; }
+.conta-usuario { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.conta-info { min-width: 0; }
+.conta-info .titulo-secao { margin-bottom: 2px; }
+.conta-info .dica { overflow-wrap: anywhere; }
 .lista-simples li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--linha); }
 .lista-simples li:last-child { border-bottom: 0; }
 .btn-remover { background: none; border: 0; color: var(--texto-3); cursor: pointer; padding: 6px 8px; border-radius: 6px; font-size: .85rem; }

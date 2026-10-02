@@ -210,10 +210,15 @@
   });
 
   $("#btn-sair").addEventListener("click", () => sb.auth.signOut());
+  // No celular o menu lateral não existe: o "Sair" fica em Cadastros > Sua conta.
+  $("#btn-sair-conta").addEventListener("click", async () => {
+    if (await confirmar("Sair da sua conta neste aparelho?", "Sair")) sb.auth.signOut();
+  });
 
-  async function entrar() {
+  async function entrar(usuario) {
     if (estado.iniciado) return;
     estado.iniciado = true;
+    $("#conta-email").textContent = usuario?.email ? `Conectado como ${usuario.email}` : "Conectado";
     $("#tela-login").hidden = true;
     $("#app").hidden = false;
     const hoje = hojeISO();
@@ -221,6 +226,7 @@
     estado.extrato.ano = a; estado.extrato.mes = m;
     estado.rel.ano = a; estado.rel.mes = m;
     $("#l-data").value = hoje;
+    renderNatureza($("#l-natureza"), "l-nat", "normal");
     try {
       await carregarCadastros();
       if (estado.categorias.length === 0 && estado.formas.length === 0) {
@@ -229,9 +235,10 @@
         await carregarCadastros();
       }
     } catch (e) { toast(msgErro(e), true); }
-    renderNatureza($("#l-natureza"), "l-nat", "normal");
     atualizarFormLancar();
-    mostrarView("lancar");
+    // Recarrega a aba ATUAL (não força "Lançar"): se a pessoa já tocou em outra
+    // aba enquanto as categorias carregavam, ela continua onde está.
+    recarregarView();
     carregarContas();
   }
 

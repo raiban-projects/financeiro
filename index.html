@@ -71,6 +71,30 @@
 
     <!-- ---------------------------- INÍCIO ---------------------------- -->
     <section id="view-inicio" class="view">
+      <div class="painel saldo-painel" id="i-saldo">
+        <form id="i-saldo-form" class="saldo-form" hidden novalidate>
+          <h2 class="titulo-secao" id="i-saldo-form-titulo">Quanto você tem na conta hoje?</h2>
+          <div class="linha-form">
+            <input id="i-saldo-valor" inputmode="decimal" placeholder="0,00" aria-label="Saldo atual em R$" autocomplete="off">
+            <button type="button" class="btn" id="i-saldo-cancelar" hidden>Cancelar</button>
+            <button type="submit" class="btn btn-primario" id="i-saldo-salvar">Salvar saldo</button>
+          </div>
+          <p class="dica" id="i-saldo-form-dica">Daqui pra frente, o que você receber soma e o que pagar subtrai. Pode ser negativo, se estiver no cheque especial.</p>
+        </form>
+        <div id="i-saldo-info" hidden>
+          <div class="saldo-linha saldo-principal">
+            <span>Saldo atual</span>
+            <strong id="i-saldo-atual"></strong>
+          </div>
+          <div class="saldo-linha">
+            <span id="i-previsto-rotulo">Previsto no fim do mês</span>
+            <strong id="i-saldo-previsto"></strong>
+          </div>
+          <p class="dica" id="i-saldo-explica"></p>
+          <p class="dica" id="i-saldo-cartao" hidden></p>
+          <button type="button" class="link" id="i-saldo-acertar">Acertar saldo</button>
+        </div>
+      </div>
       <header class="cabecalho">
         <div class="mes-nav">
           <button type="button" class="btn-icone" id="i-mes-ant" aria-label="Mês anterior">‹</button>
@@ -162,11 +186,11 @@
           </label>
           <label class="campo">
             <span>Descrição</span>
-            <input id="l-descricao" maxlength="200" placeholder="Ex.: almoço, internet, salário" autocomplete="off">
+            <input id="l-descricao" maxlength="200" placeholder="Ex.: almoço, internet, salário" autocomplete="off" list="sugestoes-descricao">
           </label>
           <label class="campo">
             <span id="l-pessoa-rotulo">Onde / pra quem</span>
-            <input id="l-pessoa" maxlength="200" placeholder="Ex.: Padaria do Centro, Mãe" autocomplete="off">
+            <input id="l-pessoa" maxlength="200" placeholder="Ex.: Padaria do Centro, Mãe" autocomplete="off" list="sugestoes-pessoa">
           </label>
           <label class="campo">
             <span>Observação</span>
@@ -194,6 +218,7 @@
         <div class="segmento" role="radiogroup" aria-label="Pagar ou receber">
           <label><input type="radio" name="c-lado" value="despesa" checked><span>Pagar</span></label>
           <label><input type="radio" name="c-lado" value="receita"><span>Receber</span></label>
+          <label><input type="radio" name="c-lado" value="tudo"><span>Tudo</span></label>
         </div>
         <button class="btn" id="btn-csv-contas" type="button">Exportar CSV</button>
       </header>
@@ -203,10 +228,29 @@
         <label><input type="radio" name="c-situacao" value="baixado"><span id="c-rotulo-baixado">Pagos</span></label>
         <label><input type="radio" name="c-situacao" value="tudo"><span>Tudo</span></label>
       </div>
+      <details class="filtros-contas" id="c-filtros">
+        <summary>Filtros <span class="filtros-qtd" id="c-filtros-qtd"></span></summary>
+        <div class="grade-campos">
+          <label class="campo"><span>Período</span>
+            <select id="c-periodo"><option value="mes">Um mês</option><option value="todos">Todos os meses</option></select>
+          </label>
+          <label class="campo"><span>Onde / quem</span><select id="c-pessoa"></select></label>
+          <label class="campo"><span>Categoria</span><select id="c-categoria"></select></label>
+          <label class="campo"><span>Buscar</span><input type="search" id="c-busca" maxlength="100" placeholder="Descrição, pessoa ou observação" autocomplete="off"></label>
+        </div>
+        <button type="button" class="link" id="c-limpar">Limpar filtros</button>
+      </details>
       <div class="mes-nav" id="c-mes-nav">
         <button type="button" class="btn-icone" id="c-mes-ant" aria-label="Mês anterior">‹</button>
         <h2 id="c-mes-titulo">—</h2>
         <button type="button" class="btn-icone" id="c-mes-prox" aria-label="Próximo mês">›</button>
+      </div>
+      <div class="painel resumo-filtro" id="c-resumo" hidden>
+        <p class="frase-resumo" id="c-frase"></p>
+        <table class="tabela-resumo tabela-filtro">
+          <thead><tr><th class="moeda">em R$</th><th>Em aberto</th><th id="c-th-baixado">Pago / recebido</th></tr></thead>
+          <tbody id="c-resumo-corpo"></tbody>
+        </table>
       </div>
       <p class="total-lista" id="c-total"></p>
       <ul id="lista-contas" class="lista"></ul>
@@ -222,6 +266,7 @@
         <div class="segmento segmento-pequeno" role="radiogroup" aria-label="Período">
           <label><input type="radio" name="r-periodo" value="mensal" checked><span>Mês</span></label>
           <label><input type="radio" name="r-periodo" value="anual"><span>Ano</span></label>
+          <label><input type="radio" name="r-periodo" value="sempre"><span>Sempre</span></label>
         </div>
         <select id="r-mes" aria-label="Mês"></select>
         <input type="number" id="r-ano" aria-label="Ano" min="2000" max="2100">
@@ -295,6 +340,15 @@
           </div>
         </div>
       </div>
+      <div class="painel">
+        <h2 class="titulo-secao">Seus dados</h2>
+        <p class="dica">Baixe uma cópia de tudo de vez em quando e guarde fora do celular (Google Drive, e-mail, PC).</p>
+        <div class="botoes-backup">
+          <button type="button" class="btn btn-primario" id="btn-backup">Baixar backup completo</button>
+          <button type="button" class="btn" id="btn-backup-csv">Baixar planilha (CSV)</button>
+        </div>
+        <p class="dica" id="backup-ultimo"></p>
+      </div>
       <div class="painel conta-usuario">
         <div class="conta-info">
           <h2 class="titulo-secao">Sua conta</h2>
@@ -344,7 +398,7 @@
       <h3>O lançamento (vale pra todas as parcelas)</h3>
       <div class="grade-campos">
         <label class="campo"><span>Descrição</span><input id="mp-e-desc" maxlength="200"></label>
-        <label class="campo"><span>Onde / quem</span><input id="mp-e-pessoa" maxlength="200"></label>
+        <label class="campo"><span>Onde / quem</span><input id="mp-e-pessoa" maxlength="200" list="sugestoes-pessoa" autocomplete="off"></label>
         <label class="campo"><span>Categoria</span><select id="mp-e-categoria"></select></label>
         <label class="campo"><span>Observação</span><input id="mp-e-obs" maxlength="1000"></label>
       </div>
@@ -420,6 +474,9 @@
     </div>
   </form>
 </dialog>
+
+<datalist id="sugestoes-pessoa"></datalist>
+<datalist id="sugestoes-descricao"></datalist>
 
 <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 <div id="puxar" class="puxar" aria-hidden="true" hidden>Puxe para atualizar</div>

@@ -108,20 +108,60 @@ create index if not exists parcelas_user_venc_idx on public.parcelas (user_id, v
 create index if not exists parcelas_abertas_idx on public.parcelas (user_id, baixado, vencimento);
 create index if not exists parcelas_fatura_idx on public.parcelas (cartao_id, vencimento);
 
+-- --------------------------------- Saldo ------------------------------------
+-- Saldo em conta: saldo_inicial na data saldo_desde. O saldo atual é esse valor
+-- mais as baixas de "a receber" menos as baixas de "a pagar" (pela data da
+-- baixa) a partir dessa data.
+create table if not exists public.saldo (
+    user_id        uuid primary key default auth.uid() references auth.users(id) on delete cascade,
+    saldo_inicial  numeric(12, 2) not null check (saldo_inicial > -100000000 and saldo_inicial < 100000000),
+    saldo_desde    date not null,
+    updated_at     timestamptz not null default now()
+);
+
 -- -----------------------------------------------------------------------------
--- Row Level Security: cada um só enxerga e mexe no que é seu
+-- Row Level Security: cada um só enxerga e mexe no que é seu.
+-- O papel "anon" (visitante sem login) não tem permissão nenhuma, mesmo se
+-- o RLS for desligado por engano.
 -- -----------------------------------------------------------------------------
-do $$
-declare t text;
-begin
-  foreach t in array array['categorias', 'formas_pagamento', 'cartoes', 'lancamentos', 'parcelas'] loop
-    execute format('alter table public.%I enable row level security', t);
-    execute format('drop policy if exists "dono" on public.%I', t);
-    execute format('create policy "dono" on public.%I for all to authenticated
-                      using (user_id = (select auth.uid()))
-                      with check (user_id = (select auth.uid()))', t);
-    -- Visitante sem login: nenhuma permissão, mesmo se o RLS for desligado.
-    execute format('revoke all on table public.%I from anon', t);
-    execute format('grant select, insert, update, delete on table public.%I to authenticated', t);
-  end loop;
-end $$;
+alter table public.categorias enable row level security;
+drop policy if exists "dono" on public.categorias;
+create policy "dono" on public.categorias for all to authenticated
+    using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
+revoke all on table public.categorias from anon;
+grant select, insert, update, delete on table public.categorias to authenticated;
+
+alter table public.formas_pagamento enable row level security;
+drop policy if exists "dono" on public.formas_pagamento;
+create policy "dono" on public.formas_pagamento for all to authenticated
+    using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
+revoke all on table public.formas_pagamento from anon;
+grant select, insert, update, delete on table public.formas_pagamento to authenticated;
+
+alter table public.cartoes enable row level security;
+drop policy if exists "dono" on public.cartoes;
+create policy "dono" on public.cartoes for all to authenticated
+    using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
+revoke all on table public.cartoes from anon;
+grant select, insert, update, delete on table public.cartoes to authenticated;
+
+alter table public.lancamentos enable row level security;
+drop policy if exists "dono" on public.lancamentos;
+create policy "dono" on public.lancamentos for all to authenticated
+    using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
+revoke all on table public.lancamentos from anon;
+grant select, insert, update, delete on table public.lancamentos to authenticated;
+
+alter table public.parcelas enable row level security;
+drop policy if exists "dono" on public.parcelas;
+create policy "dono" on public.parcelas for all to authenticated
+    using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
+revoke all on table public.parcelas from anon;
+grant select, insert, update, delete on table public.parcelas to authenticated;
+
+alter table public.saldo enable row level security;
+drop policy if exists "dono" on public.saldo;
+create policy "dono" on public.saldo for all to authenticated
+    using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
+revoke all on table public.saldo from anon;
+grant select, insert, update, delete on table public.saldo to authenticated;

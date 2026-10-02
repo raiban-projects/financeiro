@@ -453,6 +453,36 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
 .select-mini { min-height: 34px; padding: 4px 8px; border: 1px solid var(--linha); border-radius: 6px; background: var(--superficie); font-size: .85rem; }
 .lista-simples small { margin-left: 4px; }
 
+/* ------------------------------ Saldo ------------------------------ */
+.saldo-painel { display: grid; gap: 6px; grid-template-columns: minmax(0, 1fr); }
+.saldo-linha { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.saldo-linha span { color: var(--texto-2); font-weight: 500; }
+.saldo-linha strong { font: 700 1.3rem/1.2 var(--fonte-num); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.saldo-principal strong { font-size: 2rem; letter-spacing: -.02em; }
+.saldo-linha strong.despesa { color: var(--despesa); }
+.saldo-linha strong.receita { color: var(--receita); }
+.saldo-painel .dica { margin-top: 2px; }
+.saldo-painel .link { justify-self: start; margin-top: 4px; font-size: .9rem; }
+.saldo-form { display: grid; gap: 10px; grid-template-columns: minmax(0, 1fr); }
+.linha-form input { min-width: 0; }
+.saldo-form .titulo-secao { margin: 0; }
+.saldo-form input { font: 700 1.3rem/1.2 var(--fonte-num); }
+
+/* ---------------------------- Filtros ---------------------------- */
+.filtros-contas { background: var(--superficie); border-radius: var(--raio); box-shadow: var(--sombra); padding: 0 14px; }
+.filtros-contas summary { cursor: pointer; padding: 12px 0; font-weight: 600; color: var(--texto-2); list-style-position: inside; }
+.filtros-contas[open] summary { border-bottom: 1px solid var(--linha); margin-bottom: 12px; }
+.filtros-contas .grade-campos { margin-bottom: 10px; }
+.filtros-contas .link { margin-bottom: 12px; }
+.filtros-qtd { color: var(--tinta); }
+@media (min-width: 900px) { .filtros-contas .grade-campos { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.resumo-filtro { display: grid; gap: 8px; }
+.frase-resumo { margin: 0; font-weight: 600; }
+.tabela-filtro { margin: 0; }
+
+/* ---------------------------- Backup ---------------------------- */
+.botoes-backup { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+
 /* ------------------------- Puxar pra atualizar ------------------------- */
 .puxar {
   position: fixed; left: 50%; top: calc(env(safe-area-inset-top) - 36px); z-index: 60;

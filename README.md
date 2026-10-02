@@ -226,7 +226,7 @@ e os dados continuam lá).
 O app funciona como um sistema de **contas a pagar e a receber**:
 
 - **Lançamento** é a conta: descrição, categoria, onde/quem, forma de pagamento,
-  observação, e se é **à vista**, **parcelado** ou **fixo**.
+  observação, e se é de **uma vez**, **parcelado** ou **fixo**.
 - Cada lançamento gera **parcelas**, cada uma com seu vencimento.
 - **Dar baixa** numa parcela é registrar que pagou ou recebeu (data, valor e
   forma usada). O valor pode ser ajustado na hora, por juros ou desconto; o
@@ -241,7 +241,7 @@ O app funciona como um sistema de **contas a pagar e a receber**:
   **total previsto**, com o saldo. Depois, a **previsão dos próximos meses**.
   Embaixo: o que está em atraso, o que vence nos próximos 7 dias, a próxima
   fatura de cada cartão e o **limite** de cada um.
-- **Lançar:** a pagar ou a receber; à vista, parcelado (valor total ou valor de
+- **Lançar:** a pagar ou a receber; uma vez, parcelado (valor total ou valor de
   cada parcela) ou fixo; intervalo mensal ou a cada X dias. A caixa azul embaixo
   mostra como vai ficar antes de salvar.
 - **Contas:** Pagar, Receber ou Tudo, filtrando por **Em aberto**, **Em atraso**,
@@ -337,13 +337,18 @@ mostra a data do último backup baixado naquele aparelho.
 
 Cada forma tem um tipo, que dá pra mudar em Cadastros:
 
-| Tipo | Exemplos | Lançamento à vista |
+| Tipo | Exemplos | Lançamento de uma vez |
 |---|---|---|
-| **Na hora** | Pix, Débito, Dinheiro, Transferência | já entra pago (dá pra desmarcar) |
+| **Na hora** | Pix, Débito, Dinheiro, Transferência | já entra pago se a data for hoje ou anterior (dá pra desmarcar); com data futura fica em aberto |
 | **Cartão de crédito** | Crédito, Pix no crédito | vai pra fatura do cartão escolhido |
 | **A prazo** | Boleto | fica em aberto até a baixa |
 
 Parcelado e fixo sempre ficam em aberto, parcela por parcela.
+
+**Conta em 1x com vencimento (ex.: boleto que vence amanhã):** escolha **Uma
+vez** e coloque o vencimento no campo **Data ou vencimento**. Com data futura,
+ou com forma "A prazo", ela fica em aberto até você dar baixa. "Parcelado" é só
+pra 2 parcelas ou mais.
 
 ### Cartão de crédito e faturas
 

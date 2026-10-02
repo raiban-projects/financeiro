@@ -1054,7 +1054,7 @@
     $("#l-modo-wrap").hidden = condicao !== "parcelado";
     $("#l-intervalo-wrap").hidden = condicao === "avista" || ehCartao;
     $("#l-intervalo-dias").hidden = $("#l-intervalo").value !== "dias";
-    $("#l-data-rotulo").textContent = ehCartao ? "Data da compra" : condicao === "avista" ? "Data" : "1º vencimento";
+    $("#l-data-rotulo").textContent = ehCartao ? "Data da compra" : condicao === "avista" ? "Data ou vencimento" : "1º vencimento";
 
     const podeBaixar = condicao === "avista" && !ehCartao;
     $("#l-pago-wrap").hidden = !podeBaixar;
@@ -1110,7 +1110,7 @@
     if (condicao === "avista") {
       if (cartao) txt = `Cai na fatura do ${cartao.nome} que vence em ${fmtData(primeira.vencimento)}.`;
       else if ($("#l-pago").checked) txt = `Entra como ${tipo === "despesa" ? "pago" : "recebido"} em ${fmtData(primeira.vencimento)}.`;
-      else txt = `Fica em aberto, vence em ${fmtData(primeira.vencimento)}.`;
+      else txt = `Fica em aberto, em 1x, vence em ${fmtData(primeira.vencimento)}.`;
     } else if (condicao === "parcelado") {
       const v1 = parcelas[0].valor, vN = parcelas[parcelas.length - 1].valor;
       const valores = v1 === vN ? `${n}× de ${fmtBRL(v1)}`
@@ -1218,7 +1218,7 @@
       const valor = l.condicao === "parcelado"
         ? (l.valor_modo === "total" ? fmtBRL(l.valor) : `${l.total_parcelas}× ${fmtBRL(l.valor)}`)
         : fmtBRL(l.valor);
-      const condicao = l.condicao === "fixo" ? "Fixo" : l.condicao === "parcelado" ? `${l.total_parcelas}x` : "À vista";
+      const condicao = l.condicao === "fixo" ? "Fixo" : l.condicao === "parcelado" ? `${l.total_parcelas}x` : "1x";
       return h("li", { class: "com-repetir" }, h("button", { class: "item item-clicavel", type: "button", onclick: () => abrirLancamento(l) },
         h("span", { class: "item-titulo" }, l.descricao || cat),
         h("span", { class: "item-valor " + l.tipo }, `${l.tipo === "despesa" ? "−" : "+"} ${valor}`, h("small", {}, condicao)),
@@ -1258,7 +1258,7 @@
     const pagar = lanc.tipo === "despesa";
 
     $("#mp-titulo").textContent = lanc.descricao || cat;
-    const cond = lanc.condicao === "fixo" ? "Conta fixa" : lanc.condicao === "parcelado" ? `Parcela ${p.numero} de ${lanc.total_parcelas}` : "À vista";
+    const cond = lanc.condicao === "fixo" ? "Conta fixa" : lanc.condicao === "parcelado" ? `Parcela ${p.numero} de ${lanc.total_parcelas}` : "Parcela única";
     $("#mp-sub").textContent = `${pagar ? "A pagar" : "A receber"} · ${cond}`;
     $("#mp-valor").textContent = fmtBRL(valorEfetivo(p));
     $("#mp-valor").className = "detalhe-valor " + lanc.tipo;
@@ -1712,7 +1712,7 @@
       const l = lancDe(p);
       return [fmtData(p.vencimento), l.tipo === "despesa" ? "A pagar" : "A receber", l.descricao,
         estado.catPorId.get(l.categoria_id)?.nome ?? "", l.pessoa, estado.formaPorId.get(l.forma_pagamento_id)?.nome ?? "",
-        p.cartao_id ? estado.cartaoPorId.get(p.cartao_id)?.nome ?? "" : "", rotuloParcela(p) || "À vista",
+        p.cartao_id ? estado.cartaoPorId.get(p.cartao_id)?.nome ?? "" : "", rotuloParcela(p) || "1x",
         fmtNumeroCSV(p.valor), p.baixado ? (l.tipo === "despesa" ? "Pago" : "Recebido") : emAtraso(p) ? "Em atraso" : "Em aberto",
         fmtData(p.data_baixa), p.baixado ? fmtNumeroCSV(valorEfetivo(p)) : "", l.observacao];
     })];

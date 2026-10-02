@@ -375,6 +375,84 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
 .toast.erro-toast { background: var(--despesa); color: #fff; }
 @media (min-width: 900px) { .toast { bottom: 24px; } }
 
+/* ------------------------- Contas a pagar / receber ------------------------- */
+/* Situação na lista: faixa colorida à esquerda + texto da situação */
+.item.st-vencida { box-shadow: inset 4px 0 0 var(--despesa), var(--sombra); }
+.item.st-breve { box-shadow: inset 4px 0 0 #e0a100, var(--sombra); }
+.item.st-paga { opacity: .7; }
+.item-status { font-weight: 600; }
+.st-vencida .item-status, .situacao.st-vencida { color: var(--despesa); }
+.st-breve .item-status, .situacao.st-breve { color: var(--alerta); }
+.st-paga .item-status, .situacao.st-paga { color: var(--receita); }
+
+/* Visão geral do mês */
+.tabela-resumo { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; margin-bottom: 8px; }
+.tabela-resumo th, .tabela-resumo td { padding: 8px 4px; text-align: right; white-space: nowrap; }
+.tabela-resumo thead th { font-size: .78rem; font-weight: 500; color: var(--texto-3); }
+.tabela-resumo thead th.moeda { text-align: left; }
+.tabela-resumo tbody th { text-align: left; font-weight: 600; color: var(--texto-2); }
+.tabela-resumo tbody tr + tr { border-top: 1px solid var(--linha); }
+.tabela-resumo td { font: 600 1rem/1.2 var(--fonte-num); }
+.tabela-resumo td.receita { color: var(--receita); }
+.tabela-resumo td.despesa { color: var(--despesa); }
+.tabela-resumo .linha-saldo { border-top: 2px solid var(--linha) !important; }
+@media (max-width: 480px) {
+  .tabela-resumo td { font-size: .86rem; }
+  .tabela-resumo th, .tabela-resumo td { padding: 7px 2px; }
+}
+.titulo-alerta { color: var(--despesa); }
+.painel .lista .item { box-shadow: none; border: 1px solid var(--linha); }
+.painel .lista .item.st-vencida { box-shadow: inset 4px 0 0 var(--despesa); }
+.painel .lista .item.st-breve { box-shadow: inset 4px 0 0 #e0a100; }
+
+/* Lançar */
+.linha-segmentos { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.previa { margin: 0; padding: 10px 12px; border-radius: 8px; background: var(--tinta-suave); color: var(--texto); font-size: .92rem; }
+.previa:empty { display: none; }
+.intervalo { display: flex; gap: 8px; }
+.intervalo select { flex: 1; }
+.intervalo input { width: 90px; flex: none; }
+.link { background: none; border: 0; padding: 0; color: var(--tinta); font: inherit; font-weight: 600; text-decoration: underline; cursor: pointer; }
+
+/* Lista de contas */
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chips label { cursor: pointer; position: relative; }
+.chips input { position: absolute; opacity: 0; pointer-events: none; }
+.chips span {
+  display: inline-block; padding: 6px 14px; border-radius: 99px;
+  border: 1px solid var(--linha); background: var(--superficie); color: var(--texto-2); font-size: .9rem; font-weight: 500;
+}
+.chips input:checked + span { background: var(--tinta); border-color: var(--tinta); color: var(--superficie); }
+.chips input:focus-visible + span { outline: 2px solid var(--tinta); outline-offset: 2px; }
+#view-contas .mes-nav h2 { min-width: 10ch; text-align: center; font: 700 1.1rem/1.2 var(--fonte-num); }
+.total-lista { margin: 0; color: var(--texto-2); font-size: .9rem; }
+.total-lista:empty { display: none; }
+
+/* Detalhe da parcela e da fatura */
+.detalhe-topo { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.detalhe-topo h2 { font: 700 1.25rem/1.2 var(--fonte-num); }
+.detalhe-topo .dica { margin-top: 4px; }
+.detalhe-valor { font: 700 1.4rem/1.2 var(--fonte-num); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.detalhe-valor.despesa { color: var(--despesa); }
+.detalhe-valor.receita { color: var(--receita); }
+.situacao { margin: 0; font-weight: 600; color: var(--texto-2); }
+.detalhes { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0; font-size: .92rem; }
+.detalhes dt { color: var(--texto-3); }
+.detalhes dd { margin: 0; overflow-wrap: anywhere; }
+.bloco { display: grid; gap: 12px; padding: 14px; border-radius: 10px; background: var(--superficie-2); border: 1px solid var(--linha); }
+.bloco h3 { margin: 0; font-size: .95rem; }
+.lista-compacta { max-height: 40vh; overflow: auto; }
+.lista-compacta .item { box-shadow: none; border: 1px solid var(--linha); padding: 8px 12px; }
+.opcoes-excluir { display: grid; gap: 8px; }
+
+/* Cadastros */
+.coluna { display: grid; gap: 16px; align-content: start; }
+.mini { display: inline-flex; align-items: center; gap: 6px; font-size: .9rem; color: var(--texto-2); }
+.linha-form .mini input { width: 64px; flex: none; }
+.li-acoes { display: inline-flex; align-items: center; gap: 4px; }
+.select-mini { min-height: 34px; padding: 4px 8px; border: 1px solid var(--linha); border-radius: 6px; background: var(--superficie); font-size: .85rem; }
+.lista-simples small { margin-left: 4px; }
+
 /* ------------------------- Puxar pra atualizar ------------------------- */
 .puxar {
   position: fixed; left: 50%; top: calc(env(safe-area-inset-top) - 36px); z-index: 60;

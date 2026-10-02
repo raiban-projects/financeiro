@@ -12,7 +12,8 @@ se fosse um aplicativo.
 | `style.css` | O visual (celular e PC, tema claro e escuro) |
 | `app.js` | Toda a lógica do app |
 | `config.js` | **Onde você cola a URL e a chave do seu Supabase** |
-| `schema.sql` | Cria as tabelas no Supabase (roda uma vez só) |
+| `schema.sql` | Cria as tabelas num projeto Supabase **novo** (roda uma vez só) |
+| `migracoes/` | Atualizações do banco pra quem já usa o app (veja "Atualizar o banco") |
 | `manifest.json` + `icons/` | Permitem instalar o app na tela inicial do celular |
 | `vendor/` | Cópias oficiais das bibliotecas Supabase e Chart.js (o site não carrega scripts de fora) |
 
@@ -33,6 +34,9 @@ principal a trancar.
 3. Espere uns 2 minutos até o projeto ficar pronto.
 
 ## Passo 2 — Criar as tabelas
+
+Projeto novo, sem nada ainda: use o `schema.sql`. (Se você já usa o app, veja
+"Atualizar o banco" mais abaixo.)
 
 1. No menu lateral do projeto, abra **SQL Editor**.
 2. Clique em **New query**, cole **todo** o conteúdo do `schema.sql` e clique em **Run**.
@@ -113,7 +117,9 @@ então não precisa digitar a senha toda vez.
 - **Texto digitado nunca vira código.** Uma descrição com código malicioso
   aparece na tela como texto comum.
 - **Limites no banco:** textos de até 200 caracteres, valores até 10 milhões,
-  no máximo 48 parcelas.
+  no máximo 120 parcelas.
+- **Vínculos por dono:** um lançamento só aceita categoria, forma de pagamento e
+  cartão do mesmo usuário. Ninguém consegue usar nem mexer nos cadastros do outro.
 
 Tudo isso foi testado antes da entrega: num Postgres simulando o Supabase (outro
 usuário, visitante sem login, RLS desligado por engano, gravação em nome de
@@ -141,15 +147,15 @@ tentativa de XSS, script externo injetado, envio de dados pra outro site).
 ### Confira você mesmo (depois de publicar)
 
 1. No painel do Supabase, abra **Advisors → Security Advisor**. Não deve aparecer
-   nenhum alerta sobre as tabelas `categorias`, `formas_pagamento`, `transacoes`
-   ou `contas_programadas`.
+   nenhum alerta sobre as tabelas `categorias`, `formas_pagamento`, `cartoes`,
+   `lancamentos` ou `parcelas`.
 2. Abra o seu site numa **aba anônima** (sem login), aperte **F12**, vá em
    **Console** e cole o código abaixo, trocando a URL e a chave pelas suas (o
    Chrome pode pedir pra você digitar `allow pasting` antes):
 
 ```js
 const URL = "https://SEU-PROJETO.supabase.co", KEY = "SUA-ANON-KEY";
-fetch(`${URL}/rest/v1/transacoes?select=*`, { headers: { apikey: KEY } })
+fetch(`${URL}/rest/v1/parcelas?select=*`, { headers: { apikey: KEY } })
   .then(r => r.json()).then(r => console.log("Leitura sem login:", r));
 fetch(`${URL}/auth/v1/signup`, { method: "POST",
   headers: { apikey: KEY, "Content-Type": "application/json" },
@@ -162,6 +168,26 @@ lista vazia `[]`), e o cadastro volta com erro dizendo que **novos cadastros nã
 são permitidos**. Se aparecer algum lançamento seu, ou o cadastro funcionar,
 algo ficou errado: revise os passos 2 e 3.
 
+## Atualizar o banco (pra quem já usa o app)
+
+Quando uma versão nova muda a estrutura do banco, ela vem com um arquivo na pasta
+`migracoes/`. Rode cada arquivo **uma vez**, na ordem da data do nome, no
+**SQL Editor** do Supabase (*New query*, cole o arquivo inteiro, **Run**).
+
+| Arquivo | O que faz |
+|---|---|
+| `2026-10-contas-a-pagar-receber.sql` | Troca o modelo pra contas a pagar e receber. **Apaga os lançamentos da versão anterior**; mantém categorias e formas de pagamento. |
+
+Rode a migração **antes** de abrir a versão nova do app.
+
+## Outra pessoa usando (ex.: namorada)
+
+Não precisa reabrir o cadastro público. No Supabase, vá em **Authentication →
+Users → Add user → Create new user**, coloque o e-mail dela e uma senha, e marque
+**Auto Confirm User**. Ela entra no mesmo site. Cada login tem os próprios
+lançamentos, categorias, formas de pagamento e cartões: um não vê nem consegue
+usar nada do outro.
+
 ## Plano gratuito do Supabase
 
 No plano grátis, o Supabase pausa projetos com pouca atividade ao longo de 7 dias.
@@ -173,30 +199,74 @@ e os dados continuam lá).
 
 ## Como o app funciona
 
-- **Lançar:** valor grande no topo, Despesa/Receita, data (já vem com hoje),
-  categoria, forma de pagamento, descrição e onde gastou. Compra parcelada divide
-  o valor e cria uma parcela por mês (os centavos que sobram vão na 1ª parcela,
-  então a soma sempre bate). Embaixo aparecem os últimos lançamentos.
-- **Contas:** contas a pagar e a receber com vencimento. Vermelho = vencida,
-  amarelo = vence em até 5 dias. O ícone no menu mostra quantas precisam de
-  atenção. Ao tocar em **Pagar**, você confirma valor, data e forma de pagamento,
-  e o lançamento é criado sozinho. Contas "todo mês" já pulam pro mês seguinte.
-- **Extrato:** lançamentos do mês agrupados por dia, com setas pra trocar de mês.
-  Toque em qualquer lançamento pra editar ou excluir. Exporta CSV.
-- **Relatórios:** por mês ou ano, quanto foi pra cada categoria (com %) e um
-  gráfico de receitas e despesas mês a mês. Exporta CSV.
-- **Cadastros:** categorias e formas de pagamento. Não deixa remover algo que já
-  tem lançamento (pra nenhum lançamento ficar sem categoria).
+O app funciona como um sistema de **contas a pagar e a receber**:
 
-### Fatura do cartão (sem duplicar gastos)
+- **Lançamento** é a conta: descrição, categoria, onde/quem, forma de pagamento,
+  observação, e se é **à vista**, **parcelado** ou **fixo**.
+- Cada lançamento gera **parcelas**, cada uma com seu vencimento.
+- **Dar baixa** numa parcela é registrar que pagou ou recebeu (data, valor e
+  forma usada). O valor pode ser ajustado na hora, por juros ou desconto; o
+  original fica guardado.
+- Tudo que não teve baixa fica **em aberto**; o que passou do vencimento fica
+  **em atraso**.
 
-Todo lançamento tem o campo **"Este lançamento é"**:
+### Telas
 
-- **Normal:** conta na categoria e no total do mês (débito, pix, dinheiro).
-- **Compra no crédito:** conta só na categoria (pra saber onde gastou), mas não
-  no total do mês. Escolher "Crédito" como forma de pagamento já marca essa opção.
-- **Pagamento de fatura:** o valor da fatura paga. Conta no total do mês (é o
-  dinheiro que saiu de fato), mas não entra na conta por categoria.
+- **Início:** o mês em forma de planilha: receitas e despesas **realizadas**, o
+  que **falta** e o **total previsto**, com o saldo. Embaixo: o que está em
+  atraso, o que vence nos próximos 7 dias e a próxima fatura de cada cartão.
+- **Lançar:** a pagar ou a receber; à vista, parcelado (valor total ou valor de
+  cada parcela) ou fixo; intervalo mensal ou a cada X dias. A caixa azul embaixo
+  mostra como vai ficar antes de salvar.
+- **Contas:** Pagar ou Receber, filtrando por **Em aberto**, **Em atraso**,
+  **Pagos/Recebidos** ou **Tudo**, mês a mês. Toque num item pra dar baixa,
+  desfazer, editar ou excluir. Exporta CSV.
+- **Relatórios:** por mês ou ano, despesas ou receitas, com o mesmo filtro de
+  situação; total por categoria e gráfico mês a mês. Exporta CSV.
+- **Cadastros:** categorias, cartões, formas de pagamento e sua conta (Sair).
+
+### Formas de pagamento
+
+Cada forma tem um tipo, que dá pra mudar em Cadastros:
+
+| Tipo | Exemplos | Lançamento à vista |
+|---|---|---|
+| **Na hora** | Pix, Débito, Dinheiro, Transferência | já entra pago (dá pra desmarcar) |
+| **Cartão de crédito** | Crédito, Pix no crédito | vai pra fatura do cartão escolhido |
+| **A prazo** | Boleto | fica em aberto até a baixa |
+
+Parcelado e fixo sempre ficam em aberto, parcela por parcela.
+
+### Cartão de crédito e faturas
+
+Cadastre cada cartão com o **dia do fechamento** e o **dia do vencimento**. Uma
+compra feita **antes** do fechamento cai na fatura daquele mês; feita **no dia do
+fechamento ou depois**, cai na seguinte. Compras parceladas caem uma em cada
+fatura.
+
+Em **Contas → Pagar**, as compras de cada cartão aparecem juntas como **Fatura**.
+Ao pagar a fatura, todas as compras dela recebem baixa de uma vez. Juros,
+anuidade ou outra cobrança: lance como compra no cartão antes de pagar.
+
+**Pix no crédito:** escolha a forma "Pix no crédito" e o cartão. Se já sabe o
+valor de cada parcela com os juros, escolha "O valor digitado é: De cada parcela".
+
+**Emprestou o cartão (ex.: pra sua mãe):** lance a compra como **a pagar** no
+crédito, parcelada. E lance **a receber** dela o mesmo valor, parcelado igual.
+Conforme ela for te pagando, dê baixa nas parcelas a receber.
+
+### Contas fixas
+
+Salário, aluguel, internet, assinaturas: escolha **Fixo**. O app deixa lançado
+sempre **1 ano à frente** e vai renovando sozinho. Pra mudar o valor (aumento da
+internet, por exemplo), edite uma parcela e marque "Usar o novo valor também nas
+próximas". Pra parar (cancelou a assinatura), exclua a parcela escolhendo
+"Esta e as próximas", que encerra a conta fixa.
+
+### Datas dos relatórios
+
+Os totais usam a **data de vencimento**: compra no cartão entra no mês da
+fatura, e uma conta paga com atraso continua no mês em que venceu.
 
 ### CSV
 

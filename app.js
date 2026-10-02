@@ -518,7 +518,67 @@
     // aba enquanto os dados carregavam, ela continua onde está.
     recarregarView();
     if (estado.view !== "inicio" && estado.view !== "contas") atualizarBadge();
+    avisarContas();
   }
+
+  // ---------------------------------------------------------------------------
+  // Aviso ao abrir: contas vencidas (a pagar e a receber) e a pagar que vencem
+  // hoje ou amanhã. Aparece uma vez por dia em cada aparelho.
+  // ---------------------------------------------------------------------------
+  const modalAviso = $("#modal-aviso");
+  let avisoDestino = null;
+  function avisoJaVisto() {
+    try { return localStorage.getItem("aviso-contas") === `${estado.email}|${hojeISO()}`; } catch (e) { return false; }
+  }
+  function marcarAvisoVisto() {
+    try { localStorage.setItem("aviso-contas", `${estado.email}|${hojeISO()}`); } catch (e) { /* sem armazenamento: avisa de novo na próxima abertura */ }
+  }
+  async function avisarContas() {
+    if (avisoJaVisto() || document.querySelector("dialog[open]") || estado.selecao) return;
+    let abertas;
+    try { abertas = (await parcelasAbertas()).filter(lancDe); } catch (e) { return; }
+    if (avisoJaVisto() || document.querySelector("dialog[open]")) return;
+    const total = (lista, tipo) => soma(lista.filter((p) => lancDe(p).tipo === tipo), valorEfetivo);
+    const vencidas = abertas.filter(emAtraso);
+    const amanha = addDiasISO(hojeISO(), 1);
+    const breve = abertas.filter((p) => lancDe(p).tipo === "despesa" && p.vencimento >= hojeISO() && p.vencimento <= amanha);
+    if (!vencidas.length && !breve.length) return;
+    const linhas = [];
+    if (vencidas.length) {
+      const n = agrupar(vencidas).length, pagar = total(vencidas, "despesa"), receber = total(vencidas, "receita");
+      const partes = [];
+      if (pagar) partes.push(`${fmtBRL(pagar)} a pagar`);
+      if (receber) partes.push(`${fmtBRL(receber)} a receber`);
+      linhas.push(h("li", { class: "vencidas" },
+        h("strong", {}, `${n} ${plural(n, "conta vencida", "contas vencidas")}`), h("span", {}, partes.join(" · "))));
+    }
+    if (breve.length) {
+      const entradas = agrupar(breve), n = entradas.length;
+      const soHoje = breve.every((p) => p.vencimento === hojeISO()), soAmanha = breve.every((p) => p.vencimento === amanha);
+      const quando = soHoje ? "hoje" : soAmanha ? "amanhã" : "hoje ou amanhã";
+      const nomes = entradas.slice(0, 3).map((e) => e.tipo === "fatura" ? `Fatura ${e.cartao.nome}`
+        : lancDe(e.p).descricao || estado.catPorId.get(lancDe(e.p).categoria_id)?.nome || "Conta");
+      linhas.push(h("li", { class: "breve" },
+        h("strong", {}, `${n} a pagar ${plural(n, "vence", "vencem")} ${quando}`),
+        h("span", {}, `${fmtBRL(soma(breve, valorEfetivo))} · ${nomes.join(", ")}${n > 3 ? ` e mais ${n - 3}` : ""}`)));
+    }
+    $("#av-titulo").textContent = vencidas.length ? "Você tem contas vencidas" : "Contas pra pagar";
+    $("#av-linhas").replaceChildren(...linhas);
+    avisoDestino = vencidas.length ? { situacao: "atraso", lado: "tudo" } : { situacao: "aberto", lado: "despesa", data: breve[0].vencimento };
+    modalAviso.showModal();
+  }
+  // Fechar de qualquer jeito (botão, Esc) conta como visto por hoje.
+  modalAviso.addEventListener("close", marcarAvisoVisto);
+  $("#av-ignorar").addEventListener("click", () => modalAviso.close());
+  $("#av-verificar").addEventListener("click", () => {
+    modalAviso.close();
+    const c = estado.contas, d = avisoDestino;
+    Object.assign(c, { lado: d.lado, situacao: d.situacao, periodo: "mes", pessoa: "", categoria: "", busca: "" });
+    if (d.data) { const [a, m] = partesISO(d.data); c.ano = a; c.mes = m; }
+    document.querySelector(`input[name="c-lado"][value="${d.lado}"]`).checked = true;
+    document.querySelector(`input[name="c-situacao"][value="${d.situacao}"]`).checked = true;
+    mostrarView("contas");
+  });
 
   // ---------------------------------------------------------------------------
   // Navegação
@@ -550,6 +610,7 @@
     try { await carregarLancamentos(); await renovarFixos(); } catch (e) { console.error(e); }
     recarregarView();
     if (estado.view !== "inicio" && estado.view !== "contas") atualizarBadge();
+    avisarContas();
   });
 
   // ---------------------------------------------------------------------------

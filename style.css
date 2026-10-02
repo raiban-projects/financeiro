@@ -200,9 +200,18 @@ h2 { font-size: 1.15rem; margin: 0; }
 }
 .campo-mini { max-width: 140px; }
 
-.grade-campos { display: grid; gap: 12px; grid-template-columns: 1fr; }
+/* Campos de data: o Safari do iPhone dá uma largura mínima própria ao campo
+   e ignora o width: 100%, fazendo ele vazar pra direita. */
+.campo input, .campo select { min-width: 0; max-width: 100%; }
+input[type="date"] { display: block; }
+input[type="date"]::-webkit-date-and-time-value { text-align: left; }
+@supports (-webkit-touch-callout: none) {
+  input[type="date"] { -webkit-appearance: none; appearance: none; }
+}
+
+.grade-campos { display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr); }
 @media (min-width: 640px) {
-  .grade-campos { grid-template-columns: 1fr 1fr; }
+  .grade-campos { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .campo-largo { grid-column: 1 / -1; }
 }
 
@@ -328,6 +337,10 @@ h2 { font-size: 1.15rem; margin: 0; }
 .linha-form input { flex: 1 1 160px; width: auto; }
 .linha-form select { flex: 0 0 auto; width: auto; }
 .lista-simples { list-style: none; margin: 0; padding: 0; }
+.conta-usuario { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.conta-info { min-width: 0; }
+.conta-info .titulo-secao { margin-bottom: 2px; }
+.conta-info .dica { overflow-wrap: anywhere; }
 .lista-simples li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--linha); }
 .lista-simples li:last-child { border-bottom: 0; }
 .btn-remover { background: none; border: 0; color: var(--texto-3); cursor: pointer; padding: 6px 8px; border-radius: 6px; font-size: .85rem; }

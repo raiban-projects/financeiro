@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <!-- Política de segurança: a página só roda scripts deste próprio site e só
+       conversa com o Supabase. Qualquer script injetado ou externo é bloqueado. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://*.supabase.co wss://*.supabase.co; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <title>Caderneta</title>
+  <meta name="theme-color" content="#16324f">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Caderneta">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ============================== LOGIN ============================== -->
+<section id="tela-login" class="login" hidden>
+  <form id="form-login" class="login-card">
+    <h1 class="marca">Caderneta</h1>
+    <p class="login-sub">Seu controle de receitas e despesas.</p>
+    <label class="campo">
+      <span>E-mail</span>
+      <input type="email" id="login-email" autocomplete="username" required>
+    </label>
+    <label class="campo">
+      <span>Senha</span>
+      <input type="password" id="login-senha" autocomplete="current-password" required>
+    </label>
+    <p id="login-erro" class="erro" role="alert" hidden></p>
+    <button type="submit" class="btn btn-primario btn-largo">Entrar</button>
+  </form>
+</section>
+
+<!-- ============================== APP ============================== -->
+<div id="app" class="app" hidden>
+  <nav class="menu" aria-label="Seções">
+    <div class="menu-marca">Caderneta</div>
+    <button class="menu-item ativo" data-view="lancar">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+      <span>Lançar</span>
+    </button>
+    <button class="menu-item" data-view="contas">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/></svg>
+      <span>Contas</span>
+      <b id="badge-contas" class="badge" hidden></b>
+    </button>
+    <button class="menu-item" data-view="extrato">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6"/></svg>
+      <span>Extrato</span>
+    </button>
+    <button class="menu-item" data-view="relatorios">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h16M7 16v-5M12 16V6M17 16v-8"/></svg>
+      <span>Relatórios</span>
+    </button>
+    <button class="menu-item" data-view="cadastros">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h10"/></svg>
+      <span>Cadastros</span>
+    </button>
+    <button id="btn-sair" class="menu-sair" type="button">Sair</button>
+  </nav>
+
+  <main class="conteudo">
+
+    <!-- ---------------------------- LANÇAR ---------------------------- -->
+    <section id="view-lancar" class="view">
+      <form id="form-lancar" class="lancar" novalidate>
+        <div class="segmento" role="radiogroup" aria-label="Tipo">
+          <label><input type="radio" name="tipo" value="despesa" checked><span>Despesa</span></label>
+          <label><input type="radio" name="tipo" value="receita"><span>Receita</span></label>
+        </div>
+
+        <label class="valor-grande" data-tipo="despesa">
+          <span class="valor-prefixo">R$</span>
+          <input id="l-valor" inputmode="decimal" placeholder="0,00" autocomplete="off" aria-label="Valor">
+        </label>
+
+        <div class="grade-campos">
+          <label class="campo">
+            <span>Data</span>
+            <input type="date" id="l-data" required>
+          </label>
+          <label class="campo">
+            <span>Categoria</span>
+            <select id="l-categoria" required></select>
+          </label>
+          <label class="campo">
+            <span>Forma de pagamento</span>
+            <select id="l-forma" required></select>
+          </label>
+          <label class="campo">
+            <span>Descrição</span>
+            <input id="l-descricao" maxlength="200" placeholder="Ex.: almoço, gasolina" autocomplete="off">
+          </label>
+          <label class="campo campo-largo">
+            <span id="l-origem-rotulo">Onde gastou</span>
+            <input id="l-origem" maxlength="200" placeholder="Ex.: Padaria do Centro" autocomplete="off">
+          </label>
+        </div>
+
+        <div class="parcelas">
+          <label class="check">
+            <input type="checkbox" id="l-parcelado"> <span>Compra parcelada</span>
+          </label>
+          <label class="campo campo-mini" id="l-parcelas-wrap" hidden>
+            <span>Nº de parcelas</span>
+            <input type="number" id="l-parcelas" min="2" max="48" value="2" inputmode="numeric">
+          </label>
+          <p id="l-parcelas-info" class="dica" hidden></p>
+        </div>
+
+        <fieldset class="natureza" id="l-natureza"></fieldset>
+
+        <button type="submit" class="btn btn-primario btn-largo" id="l-salvar">Salvar lançamento</button>
+      </form>
+
+      <div class="recentes">
+        <h2 class="titulo-secao">Últimos lançamentos</h2>
+        <ul id="lista-recentes" class="lista"></ul>
+      </div>
+    </section>
+
+    <!-- ---------------------------- CONTAS ---------------------------- -->
+    <section id="view-contas" class="view" hidden>
+      <header class="cabecalho">
+        <h1>Contas a pagar e receber</h1>
+        <button class="btn btn-primario" id="btn-nova-conta" type="button">Nova conta</button>
+      </header>
+      <label class="check">
+        <input type="checkbox" id="c-mostrar-pagas"> <span>Mostrar contas já pagas</span>
+      </label>
+      <ul id="lista-contas" class="lista"></ul>
+    </section>
+
+    <!-- ---------------------------- EXTRATO ---------------------------- -->
+    <section id="view-extrato" class="view" hidden>
+      <header class="cabecalho">
+        <div class="mes-nav">
+          <button type="button" class="btn-icone" id="e-mes-ant" aria-label="Mês anterior">‹</button>
+          <h1 id="e-mes-titulo">—</h1>
+          <button type="button" class="btn-icone" id="e-mes-prox" aria-label="Próximo mês">›</button>
+        </div>
+        <button class="btn" id="btn-csv-extrato" type="button">Exportar CSV</button>
+      </header>
+      <div class="resumo" id="e-resumo"></div>
+      <div id="lista-extrato"></div>
+    </section>
+
+    <!-- -------------------------- RELATÓRIOS --------------------------- -->
+    <section id="view-relatorios" class="view" hidden>
+      <header class="cabecalho">
+        <h1>Relatórios</h1>
+        <button class="btn" id="btn-csv-relatorio" type="button">Exportar CSV</button>
+      </header>
+      <div class="filtros">
+        <div class="segmento segmento-pequeno" role="radiogroup" aria-label="Período">
+          <label><input type="radio" name="r-periodo" value="mensal" checked><span>Mês</span></label>
+          <label><input type="radio" name="r-periodo" value="anual"><span>Ano</span></label>
+        </div>
+        <select id="r-mes" aria-label="Mês"></select>
+        <input type="number" id="r-ano" aria-label="Ano" min="2000" max="2100">
+        <div class="segmento segmento-pequeno" role="radiogroup" aria-label="Tipo">
+          <label><input type="radio" name="r-tipo" value="despesa" checked><span>Despesas</span></label>
+          <label><input type="radio" name="r-tipo" value="receita"><span>Receitas</span></label>
+        </div>
+      </div>
+      <div class="resumo" id="r-resumo"></div>
+      <div class="painel">
+        <h2 class="titulo-secao" id="r-titulo-categorias">Por categoria</h2>
+        <ul id="r-categorias" class="barras-categoria"></ul>
+      </div>
+      <div class="painel">
+        <h2 class="titulo-secao" id="r-titulo-evolucao">Mês a mês</h2>
+        <div class="grafico-wrap"><canvas id="r-grafico" aria-label="Receitas e despesas por mês"></canvas></div>
+        <p class="dica">Valores de caixa: compras no crédito entram no mês em que a fatura é paga.</p>
+      </div>
+    </section>
+
+    <!-- --------------------------- CADASTROS --------------------------- -->
+    <section id="view-cadastros" class="view" hidden>
+      <header class="cabecalho"><h1>Cadastros</h1></header>
+      <div class="duas-colunas">
+        <div class="painel">
+          <h2 class="titulo-secao">Categorias</h2>
+          <form id="form-categoria" class="linha-form">
+            <input id="cat-nome" maxlength="60" placeholder="Nova categoria" required aria-label="Nome da categoria">
+            <select id="cat-tipo" aria-label="Tipo da categoria">
+              <option value="despesa">Despesa</option>
+              <option value="receita">Receita</option>
+            </select>
+            <button class="btn btn-primario" type="submit">Adicionar</button>
+          </form>
+          <h3 class="subtitulo">Despesas</h3>
+          <ul id="lista-cat-despesa" class="lista-simples"></ul>
+          <h3 class="subtitulo">Receitas</h3>
+          <ul id="lista-cat-receita" class="lista-simples"></ul>
+        </div>
+        <div class="painel">
+          <h2 class="titulo-secao">Formas de pagamento</h2>
+          <form id="form-forma" class="linha-form">
+            <input id="forma-nome" maxlength="60" placeholder="Nova forma de pagamento" required aria-label="Nome da forma de pagamento">
+            <button class="btn btn-primario" type="submit">Adicionar</button>
+          </form>
+          <ul id="lista-formas" class="lista-simples"></ul>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- ============================== MODAIS ============================== -->
+<dialog id="modal-transacao" class="modal">
+  <form id="form-transacao" method="dialog" class="modal-corpo">
+    <h2>Editar lançamento</h2>
+    <p id="t-aviso-parcela" class="aviso" hidden></p>
+    <div class="segmento segmento-pequeno" role="radiogroup" aria-label="Tipo">
+      <label><input type="radio" name="t-tipo" value="despesa"><span>Despesa</span></label>
+      <label><input type="radio" name="t-tipo" value="receita"><span>Receita</span></label>
+    </div>
+    <div class="grade-campos">
+      <label class="campo"><span>Valor (R$)</span><input id="t-valor" inputmode="decimal" required></label>
+      <label class="campo"><span>Data</span><input type="date" id="t-data" required></label>
+      <label class="campo"><span>Categoria</span><select id="t-categoria"></select></label>
+      <label class="campo"><span>Forma de pagamento</span><select id="t-forma"></select></label>
+      <label class="campo"><span>Descrição</span><input id="t-descricao" maxlength="200"></label>
+      <label class="campo"><span>Onde / de quem</span><input id="t-origem" maxlength="200"></label>
+    </div>
+    <fieldset class="natureza" id="t-natureza"></fieldset>
+    <div class="modal-acoes">
+      <button type="button" class="btn btn-perigo" id="t-excluir">Excluir</button>
+      <span class="espaco"></span>
+      <button type="button" class="btn" data-fechar>Cancelar</button>
+      <button type="submit" class="btn btn-primario" value="salvar">Salvar alterações</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="modal-conta" class="modal">
+  <form id="form-conta" method="dialog" class="modal-corpo">
+    <h2 id="c-titulo">Nova conta</h2>
+    <div class="segmento segmento-pequeno" role="radiogroup" aria-label="Tipo">
+      <label><input type="radio" name="c-tipo" value="despesa" checked><span>A pagar</span></label>
+      <label><input type="radio" name="c-tipo" value="receita"><span>A receber</span></label>
+    </div>
+    <div class="grade-campos">
+      <label class="campo campo-largo"><span>Descrição</span><input id="c-descricao" maxlength="200" placeholder="Ex.: Internet" required></label>
+      <label class="campo"><span>Valor (R$)</span><input id="c-valor" inputmode="decimal" required></label>
+      <label class="campo"><span>Próximo vencimento</span><input type="date" id="c-vencimento" required></label>
+      <label class="campo"><span>Categoria</span><select id="c-categoria"></select></label>
+      <label class="campo"><span>Forma de pagamento</span><select id="c-forma"></select></label>
+    </div>
+    <label class="check"><input type="checkbox" id="c-recorrente"> <span>Repete todo mês</span></label>
+    <div class="modal-acoes">
+      <span class="espaco"></span>
+      <button type="button" class="btn" data-fechar>Cancelar</button>
+      <button type="submit" class="btn btn-primario" value="salvar">Salvar conta</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="modal-pagar" class="modal">
+  <form id="form-pagar" method="dialog" class="modal-corpo">
+    <h2 id="p-titulo">Confirmar pagamento</h2>
+    <p id="p-resumo" class="p-resumo"></p>
+    <div class="grade-campos">
+      <label class="campo"><span>Valor pago (R$)</span><input id="p-valor" inputmode="decimal" required></label>
+      <label class="campo"><span>Data</span><input type="date" id="p-data" required></label>
+      <label class="campo campo-largo"><span>Forma de pagamento usada</span><select id="p-forma"></select></label>
+    </div>
+    <fieldset class="natureza" id="p-natureza"></fieldset>
+    <div class="modal-acoes">
+      <span class="espaco"></span>
+      <button type="button" class="btn" data-fechar>Cancelar</button>
+      <button type="submit" class="btn btn-primario" id="p-confirmar" value="salvar">Confirmar pagamento</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="modal-confirmar" class="modal modal-pequeno">
+  <form method="dialog" class="modal-corpo">
+    <p id="confirmar-texto"></p>
+    <div class="modal-acoes">
+      <span class="espaco"></span>
+      <button value="nao" class="btn">Cancelar</button>
+      <button value="sim" class="btn btn-perigo" id="confirmar-sim">Excluir</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+<script src="vendor/supabase-2.117.2.js"></script>
+<script src="vendor/chart-4.5.1.umd.min.js"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

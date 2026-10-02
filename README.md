@@ -1,4 +1,4 @@
-# Caderneta — controle financeiro pessoal (versão web)
+# Controle Financeiro (versão web)
 
 App web (HTML + JavaScript puro) com banco no **Supabase** e hospedagem grátis no
 **GitHub Pages**. Funciona no PC e no celular, e dá pra instalar no celular como
@@ -28,7 +28,7 @@ principal a trancar.
 ## Passo 1 — Criar o projeto no Supabase
 
 1. Entre em [supabase.com](https://supabase.com) e crie uma conta (pode usar o login do GitHub).
-2. Clique em **New project**. Dê um nome (ex.: `caderneta`), crie uma senha do
+2. Clique em **New project**. Dê um nome (ex.: `financeiro`), crie uma senha do
    banco (guarde, mas o app não usa ela) e escolha a região **South America (São Paulo)**.
 3. Espere uns 2 minutos até o projeto ficar pronto.
 
@@ -68,14 +68,14 @@ pagamento padrão (Restaurante, Jogos, Pix, Crédito...).
 ## Passo 5 — Publicar no GitHub Pages
 
 1. No [GitHub](https://github.com), clique em **New repository**. Nome sugerido:
-   `caderneta`. Deixe **Public** (o GitHub Pages grátis exige repositório público;
+   `financeiro`. Deixe **Public** (o GitHub Pages grátis exige repositório público;
    veja "Segurança" abaixo, seus dados não ficam expostos).
 2. No repositório novo, clique em **Add file → Upload files** e arraste todos os
    arquivos e as pastas `icons` e `vendor`. Clique em **Commit changes**.
 3. Vá em **Settings → Pages**. Em *Build and deployment*, escolha **Deploy from a
    branch**, branch **main**, pasta **/ (root)** e salve.
 4. Em 1 ou 2 minutos o site fica no ar em
-   `https://SEU-USUARIO.github.io/caderneta/`.
+   `https://SEU-USUARIO.github.io/financeiro/`.
 
 Pra atualizar o app no futuro, é só subir os arquivos novos do mesmo jeito
 (Upload files substitui os antigos).

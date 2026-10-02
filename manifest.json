@@ -1,6 +1,6 @@
 {
-  "name": "Caderneta - Finanças pessoais",
-  "short_name": "Caderneta",
+  "name": "Controle Financeiro",
+  "short_name": "Financeiro",
   "description": "Controle de receitas, despesas e contas a pagar.",
   "start_url": "./",
   "scope": "./",

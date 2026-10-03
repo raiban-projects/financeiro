@@ -511,7 +511,6 @@
       }
       await carregarLancamentos();
       await renovarFixos();
-      await carregarSaldo();
     } catch (e) { toast(msgErro(e), true); }
     atualizarFormLancar();
     // Recarrega a aba ATUAL (não força uma aba): se a pessoa já tocou em outra
@@ -684,6 +683,7 @@
   }
   /** Grava o saldo de forma que o saldo atual fique igual a 'valorAgora'. */
   async function definirSaldo(valorAgora) {
+    await carregarSaldo(); // pode ter mudado em outro aparelho
     const desde = estado.saldo?.saldo_desde ?? hojeISO();
     const inicial = arredonda(valorAgora - await movimentosDesde(desde));
     await exec(sb.from("saldo").upsert({ saldo_inicial: inicial, saldo_desde: desde, updated_at: new Date().toISOString() }, { onConflict: "user_id" }));
@@ -691,7 +691,9 @@
   }
 
   function mostrarFormSaldo(acertando) {
+    const jaAberto = !$("#i-saldo-form").hidden && estado.editandoSaldo === acertando;
     estado.editandoSaldo = acertando;
+    if (jaAberto) return; // não apaga o que está sendo digitado
     $("#i-saldo-form").hidden = false;
     $("#i-saldo-info").hidden = true;
     $("#i-saldo-cancelar").hidden = !acertando;
@@ -820,7 +822,9 @@
     const ini = dataNoMes(ano, mes, 1);
     let doMes, abertas;
     try {
-      [doMes, abertas] = await Promise.all([parcelasDoPeriodo(ini, dataNoMes(ano, mes, 1, 1)), parcelasAbertas()]);
+      // O saldo é relido a cada vez: ele pode ter sido configurado ou acertado em outro aparelho.
+      [doMes, abertas] = await Promise.all([parcelasDoPeriodo(ini, dataNoMes(ano, mes, 1, 1)), parcelasAbertas(),
+        estado.editandoSaldo ? null : carregarSaldo()]);
     } catch (e) { toast(msgErro(e), true); return; }
     atualizarBadge(abertas);
     doMes = doMes.filter(lancDe);

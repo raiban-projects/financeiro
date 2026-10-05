@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=2026100201">
+  <link rel="stylesheet" href="style.css?v=2026100501">
 </head>
 <body>
 
@@ -251,6 +251,11 @@
           </label>
           <label class="campo"><span>Onde / quem</span><select id="c-pessoa"></select></label>
           <label class="campo"><span>Categoria</span><select id="c-categoria"></select></label>
+          <label class="campo"><span>Tipo de conta</span>
+            <select id="c-condicao"><option value="">Todos</option><option value="avista">À vista</option><option value="parcelado">Parcelado</option><option value="fixo">Fixo</option></select>
+          </label>
+          <label class="campo"><span>Forma de pagamento</span><select id="c-forma"></select></label>
+          <label class="campo"><span>Cartão</span><select id="c-cartao"></select></label>
           <label class="campo"><span>Buscar</span><input type="search" id="c-busca" maxlength="100" placeholder="Descrição, pessoa, obs." title="Procura na descrição, em Onde / quem e na observação" autocomplete="off"></label>
         </div>
         <button type="button" class="link" id="c-limpar">Limpar filtros</button>
@@ -581,6 +586,6 @@
 <script src="vendor/supabase-2.117.2.js"></script>
 <script src="vendor/chart-4.5.1.umd.min.js"></script>
 <script src="config.js"></script>
-<script src="app.js?v=2026100201"></script>
+<script src="app.js?v=2026100501"></script>
 </body>
 </html>

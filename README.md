@@ -246,7 +246,8 @@ O app funciona como um sistema de **contas a pagar e a receber**:
   mostra como vai ficar antes de salvar.
 - **Contas:** Pagar, Receber ou Tudo, filtrando por **Em aberto**, **Em atraso**,
   **Pagos/Recebidos** ou **Tudo**. Em **Filtros**: período (um mês ou todos),
-  **onde/quem**, **categoria** e **busca** por texto (veja abaixo). Toque num item
+  **onde/quem**, **categoria**, **tipo de conta**, **forma de pagamento**,
+  **cartão** e **busca** por texto (veja abaixo). Toque num item
   pra dar baixa, desfazer, editar, excluir ou lançar de novo. **Selecionar** dá
   baixa em várias de uma vez. Exporta CSV.
 - **Relatórios:** por **mês**, **ano** ou **sempre**, despesas ou receitas, com o
@@ -315,8 +316,12 @@ Em **Contas → Filtros**, escolha **Onde / quem** (ex.: Mãe), **Todos os meses
 e **Tudo** no lado. O resumo mostra, por exemplo, "Mãe te deve R$ 300,00", além
 do total em aberto e baixado a receber e a pagar. Também dá pra filtrar por
 **categoria** e **buscar** texto na descrição, na pessoa ou na observação (sem
-diferenciar maiúscula, minúscula ou acento). Com esses filtros, as compras do
-cartão aparecem uma a uma em vez de agrupadas na fatura.
+diferenciar maiúscula, minúscula ou acento). Também há filtro por **tipo de
+conta** (à vista, parcelado ou fixo), **forma de pagamento** e **cartão** (um
+cartão específico ou "Fora do cartão"). Os filtros se combinam: por exemplo,
+Fixo + Todos os meses mostra todas as contas fixas. Com esses filtros, as
+compras do cartão aparecem uma a uma em vez de agrupadas na fatura; só o filtro
+de cartão sozinho mantém as faturas.
 
 No Lançar, o campo de pessoa e o de descrição sugerem o que você já usou, pra
 escrever sempre igual ("Mãe" e "mãe" contam como a mesma pessoa).

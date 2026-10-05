@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=2026100502">
+  <link rel="stylesheet" href="style.css?v=2026100503">
 </head>
 <body>
 
@@ -452,7 +452,10 @@
         <label class="campo"><span>Onde / quem</span><input id="mp-e-pessoa" maxlength="200" list="sugestoes-pessoa" autocomplete="off"></label>
         <label class="campo"><span>Categoria</span><select id="mp-e-categoria"></select></label>
         <label class="campo"><span>Observação</span><input id="mp-e-obs" maxlength="1000"></label>
+        <label class="campo"><span>Forma de pagamento</span><select id="mp-e-forma"></select></label>
+        <label class="campo" id="mp-e-cartao-wrap"><span>Cartão</span><select id="mp-e-cartao"></select></label>
       </div>
+      <p class="previa" id="mp-e-aviso"></p>
       <div class="modal-acoes">
         <span class="espaco"></span>
         <button type="button" class="btn" id="mp-e-cancelar">Cancelar</button>
@@ -586,6 +589,6 @@
 <script src="vendor/supabase-2.117.2.js"></script>
 <script src="vendor/chart-4.5.1.umd.min.js"></script>
 <script src="config.js"></script>
-<script src="app.js?v=2026100502"></script>
+<script src="app.js?v=2026100503"></script>
 </body>
 </html>

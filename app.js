@@ -785,8 +785,13 @@
   // Limite do cartão: usado = tudo que está em aberto no cartão (inclusive
   // parcelas de faturas futuras), como os bancos calculam.
   // ---------------------------------------------------------------------------
+  /** Assinatura fixa só ocupa limite depois de cobrada; as cobranças futuras ainda não existem pro banco. */
+  function contaNoLimite(p) {
+    const l = lancDe(p);
+    return !(l && l.condicao === "fixo" && ocorrencia(l, p.numero) > hojeISO());
+  }
   function usoDoCartao(cartao, abertas) {
-    const usado = arredonda(soma(abertas.filter((p) => p.cartao_id === cartao.id), valorEfetivo));
+    const usado = arredonda(soma(abertas.filter((p) => p.cartao_id === cartao.id && contaNoLimite(p)), valorEfetivo));
     const limite = cartao.limite != null ? Number(cartao.limite) : null;
     return { usado, limite, disponivel: limite != null ? arredonda(limite - usado) : null };
   }
@@ -1077,7 +1082,7 @@
     if (!estado.usoCartao.has(cartao.id)) {
       try {
         const abertas = await exec(sb.from("parcelas").select("*").eq("cartao_id", cartao.id).eq("baixado", false));
-        estado.usoCartao.set(cartao.id, arredonda(soma(abertas, valorEfetivo)));
+        estado.usoCartao.set(cartao.id, arredonda(soma(abertas.filter(contaNoLimite), valorEfetivo)));
       } catch (e) { alvo.textContent = ""; return; }
     }
     const disponivel = arredonda(Number(cartao.limite) - estado.usoCartao.get(cartao.id));
@@ -1346,9 +1351,31 @@
     $("#mp-e-pessoa").value = lanc.pessoa;
     $("#mp-e-obs").value = lanc.observacao;
     preencherSelect($("#mp-e-categoria"), categoriasDoTipo(lanc.tipo), lanc.categoria_id);
+    // Receita não vai pra fatura de cartão.
+    preencherSelect($("#mp-e-forma"), lanc.tipo === "receita" ? estado.formas.filter((f) => f.tipo !== "cartao") : estado.formas, lanc.forma_pagamento_id);
+    preencherSelect($("#mp-e-cartao"), estado.cartoes, lanc.cartao_id);
+    atualizarFormaEdicao();
     $("#mp-form-editar").hidden = false;
     $("#mp-acoes").hidden = true;
   });
+  /** Forma e cartão escolhidos na edição; cartão só vale se a forma é do tipo cartão. */
+  function formaDaEdicao() {
+    const forma = estado.formaPorId.get(Number($("#mp-e-forma").value));
+    const ehCartao = forma?.tipo === "cartao";
+    return { forma, ehCartao, cartaoId: ehCartao ? Number($("#mp-e-cartao").value) || null : null };
+  }
+  function atualizarFormaEdicao() {
+    const lanc = lancDe(estado.parcela);
+    const { ehCartao, cartaoId } = formaDaEdicao();
+    $("#mp-e-cartao-wrap").hidden = !ehCartao;
+    const antes = lanc.cartao_id || null;
+    const cartao = cartaoId ? estado.cartaoPorId.get(cartaoId) : null;
+    $("#mp-e-aviso").textContent = ehCartao && !estado.cartoes.length ? "Cadastre um cartão em Cadastros pra usar essa forma."
+      : cartaoId === antes ? ""
+      : cartao ? `As parcelas em aberto vão pra fatura do ${cartao.nome}, com o vencimento da fatura. As já pagas não mudam.`
+      : "As parcelas em aberto saem da fatura do cartão e voltam a vencer na data de cada uma. As já pagas não mudam.";
+  }
+  ["#mp-e-forma", "#mp-e-cartao"].forEach((s) => $(s).addEventListener("change", atualizarFormaEdicao));
   $("#mp-e-cancelar").addEventListener("click", () => abrirParcela(estado.parcela));
   $("#mp-form-editar").addEventListener("submit", (ev) => {
     ev.preventDefault();
@@ -1358,8 +1385,13 @@
     if (!(valor > 0)) { toast("Digite um valor maior que zero.", true); return; }
     if (!venc) { toast("Escolha o vencimento.", true); return; }
     const proximas = !$("#mp-e-proximas-wrap").hidden && $("#mp-e-proximas").checked;
+    const { forma, ehCartao, cartaoId } = formaDaEdicao();
+    if (!forma) { toast("Escolha a forma de pagamento.", true); return; }
+    if (ehCartao && !cartaoId) { toast("Cadastre um cartão em Cadastros pra usar essa forma.", true); return; }
+    const mudouCartao = (lanc.cartao_id || null) !== cartaoId;
     acao($("#mp-e-salvar"), async () => {
-      await exec(sb.from("parcelas").update({ valor, vencimento: venc }).eq("id", p.id));
+      // Se o cartão mudou, o vencimento desta parcela é recalculado logo abaixo.
+      await exec(sb.from("parcelas").update(mudouCartao ? { valor } : { valor, vencimento: venc }).eq("id", p.id));
       if (proximas) {
         await exec(sb.from("parcelas").update({ valor }).eq("lancamento_id", lanc.id).gt("numero", p.numero).eq("baixado", false));
       }
@@ -1368,8 +1400,20 @@
         pessoa: $("#mp-e-pessoa").value.trim(),
         observacao: $("#mp-e-obs").value.trim(),
         categoria_id: Number($("#mp-e-categoria").value),
+        forma_pagamento_id: forma.id,
       };
       if (proximas && lanc.condicao === "fixo") mudancas.valor = valor; // as próximas geradas usam o valor novo
+      if (mudouCartao) {
+        // Entrou, saiu ou trocou de cartão: as parcelas em aberto mudam de fatura e de
+        // vencimento. As parcelas vão antes do lançamento: se a rede cair no meio, é só salvar de novo.
+        Object.assign(mudancas, { cartao_id: cartaoId }, cartaoId ? { intervalo: "mensal", intervalo_dias: null } : {});
+        const novo = { ...lanc, ...mudancas };
+        const abertas = await exec(sb.from("parcelas").select("id,numero").eq("lancamento_id", lanc.id).eq("baixado", false));
+        for (let i = 0; i < abertas.length; i += 10) {
+          await Promise.all(abertas.slice(i, i + 10).map((a) =>
+            exec(sb.from("parcelas").update({ cartao_id: cartaoId, vencimento: vencimentoDa(novo, a.numero) }).eq("id", a.id))));
+        }
+      }
       await exec(sb.from("lancamentos").update(mudancas).eq("id", lanc.id));
       modalP.close();
       toast(proximas ? "Alterações salvas, inclusive nas próximas parcelas." : "Alterações salvas.");

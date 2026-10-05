@@ -190,7 +190,7 @@
     usoCartao: new Map(),   // cartão -> total em aberto (cache do Lançar)
     selecao: null,          // Set de parcelas marcadas em Contas (modo seleção) ou null
     inicio: { ano: 0, mes: 0 },
-    contas: { lado: "despesa", situacao: "aberto", ano: 0, mes: 0, periodo: "mes", pessoa: "", categoria: "", busca: "", base: [], entradas: [] },
+    contas: { lado: "despesa", situacao: "aberto", ano: 0, mes: 0, periodo: "mes", pessoa: "", categoria: "", condicao: "", forma: "", cartao: "", busca: "", base: [], entradas: [] },
     rel: { periodo: "mensal", mes: 0, ano: 0, tipo: "despesa", situacao: "tudo", cacheAno: null, parcelasAno: [] },
     grafico: null,
     parcela: null,  // parcela aberta no modal
@@ -572,7 +572,7 @@
   $("#av-verificar").addEventListener("click", () => {
     modalAviso.close();
     const c = estado.contas, d = avisoDestino;
-    Object.assign(c, { lado: d.lado, situacao: d.situacao, periodo: "mes", pessoa: "", categoria: "", busca: "" });
+    Object.assign(c, { lado: d.lado, situacao: d.situacao, periodo: "mes", pessoa: "", categoria: "", condicao: "", forma: "", cartao: "", busca: "" });
     if (d.data) { const [a, m] = partesISO(d.data); c.ano = a; c.mes = m; }
     document.querySelector(`input[name="c-lado"][value="${d.lado}"]`).checked = true;
     document.querySelector(`input[name="c-situacao"][value="${d.situacao}"]`).checked = true;
@@ -1494,14 +1494,14 @@
   document.querySelectorAll('input[name="c-lado"], input[name="c-situacao"]').forEach((r) =>
     r.addEventListener("change", () => { lerFiltrosContas(); carregarContas(); }));
   $("#c-periodo").addEventListener("change", () => { lerFiltrosContas(); carregarContas(); });
-  ["#c-pessoa", "#c-categoria"].forEach((sel) => $(sel).addEventListener("change", () => { lerFiltrosContas(); renderContas(); }));
+  ["#c-pessoa", "#c-categoria", "#c-condicao", "#c-forma", "#c-cartao"].forEach((sel) => $(sel).addEventListener("change", () => { lerFiltrosContas(); renderContas(); }));
   let timerBusca;
   $("#c-busca").addEventListener("input", () => {
     clearTimeout(timerBusca);
     timerBusca = setTimeout(() => { lerFiltrosContas(); renderContas(); }, 250);
   });
   $("#c-limpar").addEventListener("click", () => {
-    Object.assign(estado.contas, { periodo: "mes", pessoa: "", categoria: "", busca: "" });
+    Object.assign(estado.contas, { periodo: "mes", pessoa: "", categoria: "", condicao: "", forma: "", cartao: "", busca: "" });
     carregarContas();
   });
   $("#c-mes-ant").addEventListener("click", () => mudarMes(estado.contas, -1, carregarContas));
@@ -1514,6 +1514,9 @@
     c.periodo = $("#c-periodo").value;
     c.pessoa = $("#c-pessoa").value;
     c.categoria = $("#c-categoria").value;
+    c.condicao = $("#c-condicao").value;
+    c.forma = $("#c-forma").value;
+    c.cartao = $("#c-cartao").value;
     c.busca = $("#c-busca").value.trim();
   }
 
@@ -1528,6 +1531,14 @@
     if (c.categoria && !estado.catPorId.has(Number(c.categoria))) c.categoria = "";
     $("#c-categoria").replaceChildren(h("option", { value: "" }, "Todas"), grupo("Despesas", "despesa"), grupo("Receitas", "receita"));
     $("#c-categoria").value = String(c.categoria);
+    $("#c-condicao").value = c.condicao;
+    if (c.forma && !estado.formaPorId.has(Number(c.forma))) c.forma = "";
+    $("#c-forma").replaceChildren(h("option", { value: "" }, "Todas"), ...estado.formas.map((f) => h("option", { value: f.id }, f.nome)));
+    $("#c-forma").value = String(c.forma);
+    if (c.cartao && c.cartao !== "nenhum" && !estado.cartaoPorId.has(Number(c.cartao))) c.cartao = "";
+    $("#c-cartao").replaceChildren(h("option", { value: "" }, "Todos"), ...estado.cartoes.map((k) => h("option", { value: k.id }, k.nome)),
+      h("option", { value: "nenhum" }, "Fora do cartão"));
+    $("#c-cartao").value = String(c.cartao);
     $("#c-periodo").value = c.periodo;
     $("#c-busca").value = c.busca;
   }
@@ -1559,6 +1570,9 @@
       const l = lancDe(p);
       if (c.pessoa && chaveTexto(l.pessoa) !== c.pessoa) return false;
       if (c.categoria && l.categoria_id !== Number(c.categoria)) return false;
+      if (c.condicao && l.condicao !== c.condicao) return false;
+      if (c.forma && l.forma_pagamento_id !== Number(c.forma)) return false;
+      if (c.cartao === "nenhum" ? !!p.cartao_id : c.cartao && p.cartao_id !== Number(c.cartao)) return false;
       if (busca && ![l.descricao, l.pessoa, l.observacao].some((t) => chaveTexto(t).includes(busca))) return false;
       return true;
     };
@@ -1570,15 +1584,17 @@
     }[c.situacao];
     const filtrado = c.base.filter(passaFiltros);
     const lista = filtrado.filter((p) => (c.lado === "tudo" || lancDe(p).tipo === c.lado) && situacao(p));
-    // Com filtro de pessoa/categoria/busca, as compras do cartão aparecem uma a uma (não como fatura).
-    const filtroDeTexto = !!(c.pessoa || c.categoria || busca);
-    c.entradas = filtroDeTexto
+    // Com filtro de pessoa, categoria, tipo, forma ou busca, as compras do cartão aparecem uma a uma (não como fatura).
+    // Só o filtro de cartão mantém as faturas agrupadas (dá pra pagar dali).
+    const filtroFino = !!(c.pessoa || c.categoria || c.condicao || c.forma || busca);
+    const filtroDeTexto = filtroFino || !!c.cartao;
+    c.entradas = filtroFino
       ? lista.map((p) => ({ tipo: "parcela", p, vencimento: p.vencimento, valor: valorEfetivo(p) }))
           .sort((x, y) => x.vencimento.localeCompare(y.vencimento))
       : agrupar(lista);
     c.parcelas = lista;
 
-    const ativos = [c.periodo === "todos", !!c.pessoa, !!c.categoria, !!busca].filter(Boolean).length;
+    const ativos = [c.periodo === "todos", !!c.pessoa, !!c.categoria, !!c.condicao, !!c.forma, !!c.cartao, !!busca].filter(Boolean).length;
     $("#c-filtros-qtd").textContent = ativos ? `(${ativos})` : "";
     $("#c-limpar").hidden = ativos === 0;
 

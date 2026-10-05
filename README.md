@@ -84,6 +84,12 @@ pagamento padrão (Restaurante, Jogos, Pix, Crédito...).
 Pra atualizar o app no futuro, é só subir os arquivos novos do mesmo jeito
 (Upload files substitui os antigos).
 
+**Se a publicação travar:** depois de um merge, a aba **Actions** mostra
+"pages build and deployment". Se ficar em *Queued* por mais de 10 minutos, é
+fila do GitHub, não erro do app (o site continua no ar com a versão anterior).
+Abra o run travado, clique em **Cancel workflow** e faça um novo merge ou use
+**Re-run all jobs**.
+
 ## Passo 6 — Instalar no celular
 
 - **Android (Chrome):** abra o site, toque no menu ⋮ e em **Instalar app** ou

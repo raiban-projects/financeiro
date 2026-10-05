@@ -365,10 +365,17 @@ anuidade ou outra cobrança: lance como compra no cartão antes de pagar.
 em **Editar** num cartão que já existe (dá pra mudar também o nome e os dias;
 os dias novos valem só pras próximas compras). O Início mostra quanto do limite
 está usado e quanto sobra, contando **todas** as parcelas em aberto do cartão,
-inclusive as de faturas futuras, como o banco faz. A barra fica amarela a partir
+inclusive as de faturas futuras, como o banco faz. Conta **fixa** no cartão
+(assinatura) só entra no limite depois de cobrada; as cobranças dos próximos
+meses não contam. A barra fica amarela a partir
 de 80% e vermelha se passar. Ao lançar no crédito, o app mostra o disponível e
 avisa se a compra passa dele (só avisa, não impede). Pagar a fatura libera o
 limite.
+
+**Lançou com a forma errada?** Abra a conta, toque em **Editar** e troque a
+**Forma de pagamento** (e o cartão). Se a conta entra, sai ou troca de cartão,
+as parcelas em aberto mudam de fatura e de vencimento sozinhas; as que já foram
+pagas ficam como estavam.
 
 **Pix no crédito:** escolha a forma "Pix no crédito" e o cartão. Se já sabe o
 valor de cada parcela com os juros, escolha "O valor digitado é: De cada parcela".

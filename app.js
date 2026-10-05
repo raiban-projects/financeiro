@@ -1429,6 +1429,22 @@
   document.querySelectorAll("[data-fechar]").forEach((b) =>
     b.addEventListener("click", () => b.closest("dialog").close()));
 
+  // Clicar (ou tocar) fora da janela fecha, igual ao Esc. Só vale quando o clique
+  // começou e terminou fora: arrastar pra selecionar um texto e soltar fora não fecha.
+  document.querySelectorAll("dialog").forEach((dlg) => {
+    const fora = (ev) => {
+      if (ev.target !== dlg) return false;
+      const r = dlg.getBoundingClientRect();
+      return ev.clientX < r.left || ev.clientX > r.right || ev.clientY < r.top || ev.clientY > r.bottom;
+    };
+    let comecouFora = false;
+    dlg.addEventListener("pointerdown", (ev) => { comecouFora = fora(ev); });
+    dlg.addEventListener("click", (ev) => {
+      if (comecouFora && fora(ev)) dlg.close();
+      comecouFora = false;
+    });
+  });
+
   // ---------------------------------------------------------------------------
   // Modal da fatura
   // ---------------------------------------------------------------------------

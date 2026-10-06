@@ -244,9 +244,12 @@ O app funciona como um sistema de **contas a pagar e a receber**:
 
 - **Início:** no topo, o **saldo em conta** (veja abaixo). Depois, o mês em
   forma de planilha: receitas e despesas **realizadas**, o que **falta** e o
-  **total previsto**, com o saldo. Depois, a **previsão dos próximos meses**.
-  Embaixo: o que está em atraso, o que vence nos próximos 7 dias, a próxima
-  fatura de cada cartão e o **limite** de cada um.
+  **total previsto**, com o saldo. Depois, a **previsão dos próximos meses** e,
+  se houver, o que está **em atraso**. O que vence nos próximos dias e as
+  faturas ficam na tela Contas. No menu, o número ao lado de **Contas** só
+  aparece quando precisa: **vermelho** com a quantidade de contas vencidas (a
+  pagar ou a receber); sem nenhuma vencida, **amarelo** com as contas a pagar que
+  vencem em até 5 dias.
 - **Lançar:** a pagar ou a receber; à vista, parcelado (valor total ou valor de
   cada parcela) ou fixo; intervalo mensal ou a cada X dias. A caixa azul embaixo
   mostra como vai ficar antes de salvar.
@@ -275,8 +278,6 @@ diante:
 - **Previsto até o fim do mês:** saldo atual + o que falta receber − o que falta
   pagar até o último dia do mês, incluindo o que está em atraso e a fatura que
   vence no mês. É o número pra não passar do limite.
-- **Já comprometido no cartão:** parcelas de faturas dos meses seguintes, que
-  ainda vão sair do saldo.
 - **Acertar saldo:** se o app não bater com o banco (tarifa, rendimento...),
   informe o saldo real. Nenhum lançamento é alterado.
 
@@ -294,9 +295,8 @@ No Início, a tabela **Próximos meses** parte do saldo atual e soma, mês a mê
 tudo que já está lançado em aberto: salário e contas fixas, parcelas e faturas.
 A coluna **Fim do mês** é quanto deve sobrar na conta no último dia. O mês atual
 inclui o que está em atraso, então a primeira linha é igual ao "Previsto até o
-fim do mês". A linha destacada é o **mês mais apertado**; se algum mês fecha
-negativo, o aviso em cima fica vermelho. Mostra 6 meses; **Ver 12 meses** abre o
-ano todo.
+fim do mês". Se algum mês fecha negativo, o **mais apertado** fica destacado.
+Mostra 6 meses; **Ver 12 meses** abre o ano todo.
 
 A previsão só enxerga o que está lançado. Gasto do dia a dia que você ainda não
 lançou (mercado, gasolina) não entra, então deixe uma folga.
@@ -369,8 +369,8 @@ anuidade ou outra cobrança: lance como compra no cartão antes de pagar.
 
 **Limite:** em **Cadastros → Cartões**, informe o limite ao cadastrar ou toque
 em **Editar** num cartão que já existe (dá pra mudar também o nome e os dias;
-os dias novos valem só pras próximas compras). O Início mostra quanto do limite
-está usado e quanto sobra, contando **todas** as parcelas em aberto do cartão,
+os dias novos valem só pras próximas compras). Ali mesmo, embaixo da lista de
+cartões, aparece quanto do limite está usado e quanto sobra, contando **todas** as parcelas em aberto do cartão,
 inclusive as de faturas futuras, como o banco faz. Conta **fixa** no cartão
 (assinatura) só entra no limite depois de cobrada; as cobranças dos próximos
 meses não contam. A barra fica amarela a partir

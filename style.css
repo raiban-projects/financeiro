@@ -132,6 +132,7 @@ h2 { font-size: 1.15rem; margin: 0; }
   min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
   background: var(--despesa); color: #fff; font-size: .7rem; line-height: 18px; text-align: center;
 }
+.badge.breve { background: #e0a100; color: #1b1400; }
 
 /* Menu: coluna lateral no PC */
 @media (min-width: 900px) {

@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=2026100504">
+  <link rel="stylesheet" href="style.css?v=2026100601">
 </head>
 <body>
 
@@ -90,8 +90,6 @@
             <span id="i-previsto-rotulo">Previsto no fim do mês</span>
             <strong id="i-saldo-previsto"></strong>
           </div>
-          <p class="dica" id="i-saldo-explica"></p>
-          <p class="dica" id="i-saldo-cartao" hidden></p>
           <button type="button" class="link" id="i-saldo-acertar">Acertar saldo</button>
         </div>
       </div>
@@ -111,26 +109,15 @@
       </div>
       <div class="painel" id="i-previsao-painel" hidden>
         <h2 class="titulo-secao">Próximos meses</h2>
-        <p class="frase-resumo" id="i-previsao-frase"></p>
         <table class="tabela-resumo tabela-previsao">
           <thead><tr><th class="moeda">em R$</th><th>Entra</th><th>Sai</th><th>Fim do mês</th></tr></thead>
           <tbody id="i-previsao"></tbody>
         </table>
         <button type="button" class="link" id="i-previsao-mais">Ver 12 meses</button>
-        <p class="dica">Parte do saldo atual e soma tudo que está lançado em aberto: salário e contas fixas, parcelas e faturas.</p>
       </div>
       <div class="painel" id="i-atraso-painel" hidden>
         <h2 class="titulo-secao titulo-alerta" id="i-atraso-titulo">Em atraso</h2>
         <ul id="i-atraso" class="lista"></ul>
-      </div>
-      <div class="painel">
-        <h2 class="titulo-secao">Próximos 7 dias</h2>
-        <ul id="i-proximos" class="lista"></ul>
-      </div>
-      <div class="painel" id="i-cartoes-painel" hidden>
-        <h2 class="titulo-secao">Cartões</h2>
-        <ul id="i-cartoes" class="lista"></ul>
-        <ul id="i-limites" class="limites"></ul>
       </div>
     </section>
 
@@ -353,6 +340,7 @@
               <button class="btn btn-primario" type="submit">Adicionar</button>
             </form>
             <ul id="lista-cartoes" class="lista-simples"></ul>
+            <ul id="cad-limites" class="limites"></ul>
             <p class="dica">Compras feitas a partir do dia do fechamento caem na fatura seguinte.</p>
           </div>
           <div class="painel">
@@ -589,6 +577,6 @@
 <script src="vendor/supabase-2.117.2.js"></script>
 <script src="vendor/chart-4.5.1.umd.min.js"></script>
 <script src="config.js"></script>
-<script src="app.js?v=2026100504"></script>
+<script src="app.js?v=2026100601"></script>
 </body>
 </html>

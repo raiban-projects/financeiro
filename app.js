@@ -388,12 +388,20 @@
   async function atualizarBadge(abertas) {
     try {
       abertas = abertas || await parcelasAbertas();
+      // Vermelho: quantas contas estão vencidas (a pagar ou a receber). Sem nenhuma vencida,
+      // amarelo: quantas a pagar vencem nos próximos dias. Fora isso, o contador some.
+      abertas = abertas.filter(lancDe);
       const limite = addDiasISO(hojeISO(), DIAS_ALERTA);
-      const n = agrupar(abertas.filter((p) => p.vencimento <= limite)).length;
+      const vencidas = agrupar(abertas.filter(emAtraso)).length;
+      const breve = agrupar(abertas.filter((p) => lancDe(p).tipo === "despesa" && p.vencimento >= hojeISO() && p.vencimento <= limite)).length;
+      const n = vencidas || breve;
       const badge = $("#badge-contas");
       badge.hidden = n === 0;
       badge.textContent = n;
-      badge.setAttribute("aria-label", `${n} ${plural(n, "conta precisa", "contas precisam")} de atenção`);
+      badge.classList.toggle("breve", vencidas === 0);
+      badge.setAttribute("aria-label", vencidas
+        ? `${n} ${plural(n, "conta vencida", "contas vencidas")}`
+        : `${n} ${plural(n, "conta vence", "contas vencem")} nos próximos ${DIAS_ALERTA} dias`);
     } catch (e) { console.error(e); }
   }
 
@@ -496,7 +504,6 @@
     estado.iniciado = true;
     estado.email = usuario?.email || "";
     $("#conta-email").textContent = usuario?.email ? `Conectado como ${usuario.email}` : "Conectado";
-    $("#c-filtros").open = window.innerWidth >= 900;
     $("#tela-login").hidden = true;
     $("#app").hidden = false;
     const [a, m] = partesISO(hojeISO());
@@ -600,7 +607,7 @@
     else if (v === "lancar") carregarRecentes();
     else if (v === "contas") carregarContas();
     else if (v === "relatorios") carregarRelatorio();
-    else if (v === "cadastros") { renderCadastros(); mostrarUltimoBackup(); }
+    else if (v === "cadastros") { renderCadastros(); mostrarUltimoBackup(); carregarLimites(); }
   }
 
   // Ao voltar pro app (ex.: no dia seguinte), renova fixas e atualiza a tela.
@@ -715,12 +722,12 @@
     if (estado.editandoSaldo) return atual;
     const [a, m] = partesISO(hojeISO());
     const fimMes = dataNoMes(a, m, 31);
-    let receber = 0, pagar = 0, cartaoFuturo = 0;
+    // Previsto = saldo atual + o que falta receber − o que falta pagar até o fim do mês (inclui o que está em atraso).
+    let receber = 0, pagar = 0;
     for (const p of abertas) {
       const l = lancDe(p);
-      if (!l) continue;
-      if (p.vencimento <= fimMes) { if (l.tipo === "receita") receber += valorEfetivo(p); else pagar += valorEfetivo(p); }
-      else if (p.cartao_id && l.tipo === "despesa") cartaoFuturo += valorEfetivo(p);
+      if (!l || p.vencimento > fimMes) continue;
+      if (l.tipo === "receita") receber += valorEfetivo(p); else pagar += valorEfetivo(p);
     }
     const previsto = arredonda(atual + receber - pagar);
     $("#i-saldo-form").hidden = true;
@@ -730,10 +737,6 @@
     $("#i-previsto-rotulo").textContent = `Previsto até ${fmtDataCurta(fimMes)}`;
     $("#i-saldo-previsto").textContent = fmtBRL(previsto);
     $("#i-saldo-previsto").className = previsto < 0 ? "despesa" : "receita";
-    $("#i-saldo-explica").textContent =
-      `Saldo atual + ${fmtBRL(receber)} a receber − ${fmtBRL(pagar)} a pagar até o fim do mês (inclui o que está em atraso e as faturas que vencem no mês).`;
-    $("#i-saldo-cartao").hidden = cartaoFuturo <= 0;
-    $("#i-saldo-cartao").textContent = `Já comprometido no cartão pros meses seguintes: ${fmtBRL(cartaoFuturo)}.`;
     return atual;
   }
 
@@ -762,14 +765,10 @@
     painel.hidden = saldoAtual == null;
     if (painel.hidden) return;
     const linhas = calcularPrevisao(abertas, saldoAtual);
+    // Destaca o mês mais apertado só quando ele fecha negativo.
     const pior = linhas.reduce((x, y) => (y.saldo < x.saldo ? y : x));
-    const nomePior = `${MESES[partesISO(pior.ini)[1] - 1]} de ${partesISO(pior.ini)[0]}`;
-    $("#i-previsao-frase").textContent = pior.saldo < 0
-      ? `O mês mais apertado é ${nomePior}: a conta fecha em ${fmtBRL(pior.saldo)}.`
-      : `Nenhum mês fica negativo nos próximos 12 meses. O mais apertado é ${nomePior}, fechando em ${fmtBRL(pior.saldo)}.`;
-    $("#i-previsao-frase").className = "frase-resumo " + (pior.saldo < 0 ? "texto-despesa" : "");
     const mostrar = estado.previsaoMeses;
-    $("#i-previsao").replaceChildren(...linhas.slice(0, mostrar).map((l) => h("tr", { class: l === pior ? "linha-pior" : "" },
+    $("#i-previsao").replaceChildren(...linhas.slice(0, mostrar).map((l) => h("tr", { class: l === pior && pior.saldo < 0 ? "linha-pior" : "" },
       h("th", {}, nomeMesCurto(l.ini)),
       h("td", { class: "receita" }, fmtNumero(l.entra)),
       h("td", { class: "despesa" }, fmtNumero(l.sai)),
@@ -857,21 +856,24 @@
     const hoje = hojeISO();
     const atrasadas = agrupar(abertas.filter((p) => p.vencimento < hoje));
     $("#i-atraso-painel").hidden = atrasadas.length === 0;
-    $("#i-atraso-titulo").textContent = `Em atraso (${fmtBRL(soma(atrasadas, (e) => e.tipo === "fatura" ? soma(e.abertas, valorEfetivo) : e.valor))})`;
+    // A pagar e a receber não se somam: cada lado aparece com o seu total.
+    const vencidas = abertas.filter((p) => p.vencimento < hoje);
+    const totalAtraso = (tipo) => soma(vencidas.filter((p) => lancDe(p).tipo === tipo), valorEfetivo);
+    const aPagar = totalAtraso("despesa"), aReceber = totalAtraso("receita");
+    $("#i-atraso-titulo").textContent = "Em atraso (" + [aPagar ? `${fmtBRL(aPagar)}${aReceber ? " a pagar" : ""}` : "",
+      aReceber ? `${fmtBRL(aReceber)} a receber` : ""].filter(Boolean).join(" · ") + ")";
     listaOuVazio($("#i-atraso"), atrasadas, "", { mostrarTipo: true });
 
-    const proximas = agrupar(abertas.filter((p) => p.vencimento >= hoje && p.vencimento <= addDiasISO(hoje, 7)));
-    listaOuVazio($("#i-proximos"), proximas, "Nada vencendo nos próximos 7 dias.", { mostrarTipo: true });
+  }
 
-    const faturas = estado.cartoes.map((c) => {
-      const futuras = agrupar(abertas.filter((p) => p.cartao_id === c.id && p.vencimento >= hoje));
-      return futuras[0];
-    }).filter(Boolean);
+  /** Em Cadastros: quanto do limite de cada cartão está usado. */
+  async function carregarLimites() {
     const comLimite = estado.cartoes.filter((c) => c.limite != null);
-    $("#i-cartoes-painel").hidden = faturas.length === 0 && comLimite.length === 0;
-    listaOuVazio($("#i-cartoes"), faturas, "");
-    $("#i-cartoes").hidden = faturas.length === 0;
-    $("#i-limites").replaceChildren(...comLimite.map((c) => linhaLimite(c, usoDoCartao(c, abertas))));
+    if (!comLimite.length) { $("#cad-limites").replaceChildren(); return; }
+    try {
+      const abertas = (await parcelasAbertas()).filter(lancDe);
+      $("#cad-limites").replaceChildren(...comLimite.map((c) => linhaLimite(c, usoDoCartao(c, abertas))));
+    } catch (e) { console.error(e); }
   }
 
   // ---------------------------------------------------------------------------
@@ -916,6 +918,7 @@
   async function aposMudarCadastros() {
     await carregarCadastros();
     renderCadastros();
+    carregarLimites();
     atualizarFormLancar();
   }
 
@@ -1214,7 +1217,7 @@
   }
 
   function carregarRecentes() {
-    const recentes = [...estado.lancamentos].sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id - a.id).slice(0, 6);
+    const recentes = [...estado.lancamentos].sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id - a.id).slice(0, 5);
     const ul = $("#lista-recentes");
     if (!recentes.length) {
       ul.replaceChildren(h("li", { class: "vazio" }, "Nada lançado ainda. O primeiro lançamento aparece aqui."));

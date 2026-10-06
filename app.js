@@ -190,7 +190,7 @@
     usoCartao: new Map(),   // cartão -> total em aberto (cache do Lançar)
     selecao: null,          // Set de parcelas marcadas em Contas (modo seleção) ou null
     inicio: { ano: 0, mes: 0 },
-    contas: { lado: "despesa", situacao: "aberto", ano: 0, mes: 0, periodo: "mes", pessoa: "", categoria: "", condicao: "", forma: "", cartao: "", busca: "", base: [], entradas: [] },
+    contas: { lado: "despesa", situacao: "aberto", ano: 0, mes: 0, periodo: "mes", de: "", ate: "", porData: "vencimento", pessoa: "", categoria: "", condicao: "", forma: "", cartao: "", busca: "", base: [], entradas: [] },
     rel: { periodo: "mensal", mes: 0, ano: 0, tipo: "despesa", situacao: "tudo", cacheAno: null, parcelasAno: [] },
     grafico: null,
     parcela: null,  // parcela aberta no modal
@@ -579,7 +579,7 @@
   $("#av-verificar").addEventListener("click", () => {
     modalAviso.close();
     const c = estado.contas, d = avisoDestino;
-    Object.assign(c, { lado: d.lado, situacao: d.situacao, periodo: "mes", pessoa: "", categoria: "", condicao: "", forma: "", cartao: "", busca: "" });
+    Object.assign(c, { lado: d.lado, situacao: d.situacao, periodo: "mes", de: "", ate: "", porData: "vencimento", pessoa: "", categoria: "", condicao: "", forma: "", cartao: "", busca: "" });
     if (d.data) { const [a, m] = partesISO(d.data); c.ano = a; c.mes = m; }
     document.querySelector(`input[name="c-lado"][value="${d.lado}"]`).checked = true;
     document.querySelector(`input[name="c-situacao"][value="${d.situacao}"]`).checked = true;
@@ -625,8 +625,13 @@
   function itemEntrada(e, { mostrarTipo = false, selecao = null } = {}) {
     if (e.tipo === "fatura") {
       const st = situacaoFatura(e);
-      return h("li", {}, h("button", { class: "item item-clicavel " + (st.classe || "") + (selecao ? " nao-selecionavel" : ""),
-        type: "button", disabled: !!selecao, onclick: selecao ? null : () => abrirFatura(e) },
+      // Em modo seleção, marcar a fatura marca todas as compras dela que estão em aberto.
+      const podeF = e.abertas.length > 0;
+      const marcadaF = !!selecao && podeF && e.abertas.every((p) => selecao.has(p.id));
+      const extraF = !selecao ? "" : podeF ? " selecionavel" + (marcadaF ? " selecionado" : "") : " nao-selecionavel";
+      return h("li", {}, h("button", { class: "item item-clicavel " + (st.classe || "") + extraF, type: "button",
+        disabled: !!selecao && !podeF, "aria-pressed": selecao && podeF ? String(marcadaF) : null,
+        onclick: selecao ? (podeF ? () => alternarSelecaoFatura(e) : null) : () => abrirFatura(e) },
         h("span", { class: "item-titulo" }, `Fatura ${e.cartao.nome}`),
         h("span", { class: "item-valor despesa" }, fmtBRL(e.valor),
           h("small", {}, `${e.parcelas.length} ${plural(e.parcelas.length, "lançamento", "lançamentos")}`)),
@@ -653,6 +658,7 @@
       h("span", { class: "item-meta" },
         h("span", { class: "item-status" }, st.texto),
         p.baixado ? null : h("span", {}, fmtData(p.vencimento)),
+        h("span", {}, `lançado em ${fmtData(lanc.data_lancamento)}`),
         mostrarTipo ? h("span", {}, lanc.tipo === "despesa" ? "a pagar" : "a receber") : null,
         lanc.descricao && cat ? h("span", {}, cat) : null,
         lanc.pessoa ? h("span", {}, lanc.pessoa) : null),
@@ -1556,7 +1562,14 @@
   // e busca só filtram o que já foi carregado.
   document.querySelectorAll('input[name="c-lado"], input[name="c-situacao"]').forEach((r) =>
     r.addEventListener("change", () => { lerFiltrosContas(); carregarContas(); }));
-  $("#c-periodo").addEventListener("change", () => { lerFiltrosContas(); carregarContas(); });
+  $("#c-periodo").addEventListener("change", () => {
+    lerFiltrosContas();
+    const c = estado.contas;
+    // Ao escolher "Entre duas datas" pela primeira vez, começa com o mês que estava na tela.
+    if (c.periodo === "intervalo" && !c.de && !c.ate) { c.de = dataNoMes(c.ano, c.mes, 1); c.ate = dataNoMes(c.ano, c.mes, 31); }
+    carregarContas();
+  });
+  ["#c-de", "#c-ate", "#c-pordata"].forEach((sel) => $(sel).addEventListener("change", () => { lerFiltrosContas(); carregarContas(); }));
   ["#c-pessoa", "#c-categoria", "#c-condicao", "#c-forma", "#c-cartao"].forEach((sel) => $(sel).addEventListener("change", () => { lerFiltrosContas(); renderContas(); }));
   let timerBusca;
   $("#c-busca").addEventListener("input", () => {
@@ -1564,7 +1577,7 @@
     timerBusca = setTimeout(() => { lerFiltrosContas(); renderContas(); }, 250);
   });
   $("#c-limpar").addEventListener("click", () => {
-    Object.assign(estado.contas, { periodo: "mes", pessoa: "", categoria: "", condicao: "", forma: "", cartao: "", busca: "" });
+    Object.assign(estado.contas, { periodo: "mes", de: "", ate: "", porData: "vencimento", pessoa: "", categoria: "", condicao: "", forma: "", cartao: "", busca: "" });
     carregarContas();
   });
   $("#c-mes-ant").addEventListener("click", () => mudarMes(estado.contas, -1, carregarContas));
@@ -1575,6 +1588,9 @@
     c.lado = radio("c-lado");
     c.situacao = radio("c-situacao");
     c.periodo = $("#c-periodo").value;
+    c.de = $("#c-de").value;
+    c.ate = $("#c-ate").value;
+    c.porData = $("#c-pordata").value;
     c.pessoa = $("#c-pessoa").value;
     c.categoria = $("#c-categoria").value;
     c.condicao = $("#c-condicao").value;
@@ -1598,25 +1614,59 @@
     if (c.forma && !estado.formaPorId.has(Number(c.forma))) c.forma = "";
     $("#c-forma").replaceChildren(h("option", { value: "" }, "Todas"), ...estado.formas.map((f) => h("option", { value: f.id }, f.nome)));
     $("#c-forma").value = String(c.forma);
-    if (c.cartao && c.cartao !== "nenhum" && !estado.cartaoPorId.has(Number(c.cartao))) c.cartao = "";
-    $("#c-cartao").replaceChildren(h("option", { value: "" }, "Todos"), ...estado.cartoes.map((k) => h("option", { value: k.id }, k.nome)),
-      h("option", { value: "nenhum" }, "Fora do cartão"));
+    if (c.cartao && c.cartao !== "nenhum" && c.cartao !== "todos" && !estado.cartaoPorId.has(Number(c.cartao))) c.cartao = "";
+    $("#c-cartao").replaceChildren(h("option", { value: "" }, "Todos"), h("option", { value: "todos" }, "Só faturas"),
+      ...estado.cartoes.map((k) => h("option", { value: k.id }, k.nome)), h("option", { value: "nenhum" }, "Fora do cartão"));
     $("#c-cartao").value = String(c.cartao);
     $("#c-periodo").value = c.periodo;
+    $("#c-de").value = c.de;
+    $("#c-ate").value = c.ate;
+    $("#c-pordata").value = c.porData;
+    $("#c-de-wrap").hidden = $("#c-ate-wrap").hidden = c.periodo !== "intervalo";
+    $("#c-pordata-wrap").hidden = c.periodo === "todos";
     $("#c-busca").value = c.busca;
+  }
+
+  /** Faixa de datas escolhida nos filtros ({ini, fim}, com fim exclusivo), ou null se não há corte por data. */
+  function faixaContas() {
+    const c = estado.contas;
+    if (c.periodo === "todos") return null;
+    if (c.periodo === "intervalo") {
+      if (!c.de && !c.ate) return null;
+      const [de, ate] = c.de && c.ate && c.de > c.ate ? [c.ate, c.de] : [c.de, c.ate]; // datas trocadas: usa na ordem certa
+      return { ini: de || "0000-01-01", fim: ate ? addDiasISO(ate, 1) : "9999-12-31" };
+    }
+    if (c.situacao === "atraso") return null; // "Em atraso" com "Um mês" mostra tudo que venceu, de qualquer mês
+    return { ini: dataNoMes(c.ano, c.mes, 1), fim: dataNoMes(c.ano, c.mes, 1, 1) };
+  }
+  /** Texto do período, pro resumo e pro PDF. */
+  function periodoContasTxt() {
+    const c = estado.contas, faixa = faixaContas();
+    if (!faixa) return "todos os meses";
+    const por = c.porData === "lancamento" ? " (pela data de lançamento)" : "";
+    if (c.periodo === "mes") return `${MESES[c.mes - 1]} de ${c.ano}${por}`;
+    const ate = faixa.fim === "9999-12-31" ? "" : fmtData(addDiasISO(faixa.fim, -1));
+    return (faixa.ini === "0000-01-01" ? `até ${ate}` : ate ? `de ${fmtData(faixa.ini)} a ${ate}` : `a partir de ${fmtData(faixa.ini)}`) + por;
   }
 
   async function carregarContas() {
     const c = estado.contas;
     preencherFiltrosContas();
+    const faixa = faixaContas();
     let abertas;
     try {
       abertas = await parcelasAbertas();
-      c.base = (c.periodo === "todos" || c.situacao === "atraso")
-        ? await todasParcelas()
-        : await parcelasDoPeriodo(dataNoMes(c.ano, c.mes, 1), dataNoMes(c.ano, c.mes, 1, 1));
+      c.base = (faixa && c.periodo === "mes" && c.porData === "vencimento")
+        ? await parcelasDoPeriodo(faixa.ini, faixa.fim)
+        : await todasParcelas();
     } catch (e) { toast(msgErro(e), true); return; }
     c.base = c.base.filter(lancDe);
+    if (faixa) {
+      c.base = c.base.filter((p) => {
+        const d = c.porData === "lancamento" ? lancDe(p).data_lancamento : p.vencimento;
+        return d >= faixa.ini && d < faixa.fim;
+      });
+    }
     atualizarBadge(abertas);
     renderContas();
   }
@@ -1625,7 +1675,7 @@
     const c = estado.contas;
     const ladoTxt = { despesa: "Pagos", receita: "Recebidos", tudo: "Baixados" }[c.lado];
     $("#c-rotulo-baixado").textContent = ladoTxt;
-    $("#c-mes-nav").hidden = c.situacao === "atraso" || c.periodo === "todos";
+    $("#c-mes-nav").hidden = c.situacao === "atraso" || c.periodo !== "mes";
     $("#c-mes-titulo").textContent = nomeMes(c.ano, c.mes);
 
     const busca = chaveTexto(c.busca);
@@ -1635,7 +1685,7 @@
       if (c.categoria && l.categoria_id !== Number(c.categoria)) return false;
       if (c.condicao && l.condicao !== c.condicao) return false;
       if (c.forma && l.forma_pagamento_id !== Number(c.forma)) return false;
-      if (c.cartao === "nenhum" ? !!p.cartao_id : c.cartao && p.cartao_id !== Number(c.cartao)) return false;
+      if (c.cartao === "nenhum" ? !!p.cartao_id : c.cartao === "todos" ? !p.cartao_id : c.cartao && p.cartao_id !== Number(c.cartao)) return false;
       if (busca && ![l.descricao, l.pessoa, l.observacao].some((t) => chaveTexto(t).includes(busca))) return false;
       return true;
     };
@@ -1649,7 +1699,9 @@
     const lista = filtrado.filter((p) => (c.lado === "tudo" || lancDe(p).tipo === c.lado) && situacao(p));
     // Com filtro de pessoa, categoria, tipo, forma ou busca, as compras do cartão aparecem uma a uma (não como fatura).
     // Só o filtro de cartão mantém as faturas agrupadas (dá pra pagar dali).
-    const filtroFino = !!(c.pessoa || c.categoria || c.condicao || c.forma || busca);
+    // Pela data de lançamento também: a fatura sairia pela metade (só as compras lançadas naquele período).
+    const porLancamento = c.porData === "lancamento" && !!faixaContas();
+    const filtroFino = !!(c.pessoa || c.categoria || c.condicao || c.forma || busca) || porLancamento;
     const filtroDeTexto = filtroFino || !!c.cartao;
     c.entradas = filtroFino
       ? lista.map((p) => ({ tipo: "parcela", p, vencimento: p.vencimento, valor: valorEfetivo(p) }))
@@ -1657,16 +1709,16 @@
       : agrupar(lista);
     c.parcelas = lista;
 
-    const ativos = [c.periodo === "todos", !!c.pessoa, !!c.categoria, !!c.condicao, !!c.forma, !!c.cartao, !!busca].filter(Boolean).length;
+    const ativos = [c.periodo !== "mes", c.porData !== "vencimento" && c.periodo !== "todos", !!c.pessoa, !!c.categoria, !!c.condicao, !!c.forma, !!c.cartao, !!busca].filter(Boolean).length;
     $("#c-filtros-qtd").textContent = ativos ? `(${ativos})` : "";
     $("#c-limpar").hidden = ativos === 0;
 
     const qtd = `${c.entradas.length} ${plural(c.entradas.length, "item", "itens")}`;
     $("#c-total").textContent = !lista.length ? "" : c.lado === "tudo" ? qtd : `${qtd} · ${fmtBRL(soma(lista, valorEfetivo))}`;
 
-    renderResumoFiltro(filtrado, filtroDeTexto);
+    renderResumoFiltro(filtrado, filtroDeTexto || c.periodo === "intervalo");
 
-    const vazio = filtroDeTexto || c.periodo === "todos"
+    const vazio = filtroDeTexto || c.periodo !== "mes"
       ? "Nada encontrado com esses filtros."
       : {
         aberto: c.lado === "receita" ? "Nada a receber neste mês." : c.lado === "despesa" ? "Nada a pagar neste mês." : "Nada em aberto neste mês.",
@@ -1683,7 +1735,27 @@
   }
 
   // ---- Seleção e baixa em lote ----
-  function selecionaveis() { return (estado.contas.parcelas || []).filter((p) => !p.baixado && !p.cartao_id); }
+  /** Parcelas que dá pra marcar: contas avulsas em aberto e, nas faturas, as compras em aberto (a fatura entra inteira). */
+  function selecionaveis() {
+    return (estado.contas.entradas || []).flatMap((e) => e.tipo === "fatura" ? e.abertas : (!e.p.baixado && !e.p.cartao_id ? [e.p] : []));
+  }
+  /** Itens da lista que estão marcados (uma fatura conta como um item). */
+  function entradasMarcadas() {
+    const s = estado.selecao;
+    if (!s) return [];
+    return (estado.contas.entradas || []).filter((e) => e.tipo === "fatura" ? e.abertas.length && e.abertas.every((p) => s.has(p.id)) : s.has(e.p.id));
+  }
+  function alternarSelecaoFatura(e) {
+    const tudo = e.abertas.every((p) => estado.selecao.has(p.id));
+    for (const p of e.abertas) { if (tudo) estado.selecao.delete(p.id); else estado.selecao.add(p.id); }
+    renderContas();
+  }
+  /** "R$ X a pagar e R$ Y a receber" das parcelas marcadas (os dois lados não se somam). */
+  function totaisSelecao(marcadas) {
+    const pagar = soma(marcadas.filter((p) => lancDe(p).tipo === "despesa"), valorEfetivo);
+    const receber = soma(marcadas.filter((p) => lancDe(p).tipo === "receita"), valorEfetivo);
+    return { pagar, receber };
+  }
   function entrarSelecao() {
     estado.selecao = new Set();
     $("#btn-selecionar").hidden = true;
@@ -1704,9 +1776,11 @@
     barra.hidden = !estado.selecao;
     if (!estado.selecao) return;
     const marcadas = (estado.contas.parcelas || []).filter((p) => estado.selecao.has(p.id));
+    const n = entradasMarcadas().length, { pagar, receber } = totaisSelecao(marcadas);
+    const total = pagar && receber ? `${fmtBRL(pagar)} a pagar · ${fmtBRL(receber)} a receber` : `Total: ${fmtBRL(pagar || receber)}`;
     $("#c-sel-info").textContent = marcadas.length
-      ? `${marcadas.length} ${plural(marcadas.length, "selecionada", "selecionadas")} · ${fmtBRL(soma(marcadas, valorEfetivo))}`
-      : "Toque nas parcelas pra selecionar";
+      ? `${n} ${plural(n, "selecionada", "selecionadas")} · ${total}`
+      : "Toque nas contas e faturas pra selecionar";
     $("#c-sel-baixar").disabled = marcadas.length === 0;
     const todas = selecionaveis();
     $("#c-sel-todas").hidden = todas.length === 0;
@@ -1725,12 +1799,11 @@
   $("#c-sel-baixar").addEventListener("click", () => {
     const marcadas = (estado.contas.parcelas || []).filter((p) => estado.selecao?.has(p.id));
     if (!marcadas.length) return;
-    const pagar = soma(marcadas.filter((p) => lancDe(p).tipo === "despesa"), valorEfetivo);
-    const receber = soma(marcadas.filter((p) => lancDe(p).tipo === "receita"), valorEfetivo);
+    const { pagar, receber } = totaisSelecao(marcadas), n = entradasMarcadas().length;
     const partes = [];
     if (pagar) partes.push(`${fmtBRL(pagar)} a pagar`);
     if (receber) partes.push(`${fmtBRL(receber)} a receber`);
-    $("#ml-resumo").textContent = `${marcadas.length} ${plural(marcadas.length, "parcela", "parcelas")}: ${partes.join(" e ")}.`;
+    $("#ml-resumo").textContent = `${n} ${plural(n, "item", "itens")}: ${partes.join(" e ")}.`;
     $("#ml-data").value = hojeISO();
     preencherSelect($("#ml-forma"), formasImediatas(), formaSugerida());
     modalLote.showModal();
@@ -1739,7 +1812,7 @@
     ev.preventDefault();
     const data = $("#ml-data").value;
     if (!data) { toast("Escolha a data.", true); return; }
-    const ids = [...estado.selecao];
+    const ids = [...estado.selecao], n = entradasMarcadas().length;
     acao($("#ml-confirmar"), async () => {
       for (let i = 0; i < ids.length; i += 100) {
         await exec(sb.from("parcelas").update({
@@ -1749,7 +1822,7 @@
       modalLote.close();
       estado.selecao = null;
       $("#btn-selecionar").hidden = false;
-      toast(`Baixa feita em ${ids.length} ${plural(ids.length, "parcela", "parcelas")}.`);
+      toast(`Baixa feita em ${n} ${plural(n, "item", "itens")}.`);
       aposMudanca();
     });
   });
@@ -1767,7 +1840,8 @@
       h("tr", {}, h("th", {}, "A receber"), h("td", { class: "receita" }, fmtNumero(rAberto)), h("td", {}, fmtNumero(rBaixado))),
       h("tr", {}, h("th", {}, "A pagar"), h("td", { class: "despesa" }, fmtNumero(pAberto)), h("td", {}, fmtNumero(pBaixado))),
     );
-    const periodo = c.periodo === "todos" || c.situacao === "atraso" ? "somando todos os meses" : `em ${MESES[c.mes - 1]} de ${c.ano}`;
+    const txt = periodoContasTxt();
+    const periodo = txt === "todos os meses" ? "somando todos os meses" : c.periodo === "mes" ? `em ${txt}` : txt;
     const frase = $("#c-frase");
     if (c.pessoa) {
       const nome = $("#c-pessoa").selectedOptions[0]?.textContent || "";
@@ -2112,7 +2186,7 @@
     const c = estado.contas;
     if (!c.entradas?.length) { toast("Não há nada nesta lista pra exportar.", true); return; }
     await carregarPDF();
-    const semMes = c.periodo === "todos" || c.situacao === "atraso";
+    const semFaixa = !faixaContas(), txtPeriodo = periodoContasTxt();
     const titulo = { despesa: "Contas a pagar", receita: "Contas a receber", tudo: "Contas a pagar e a receber" }[c.lado];
     const situacao = { aberto: "Em aberto", atraso: "Em atraso", baixado: $("#c-rotulo-baixado").textContent, tudo: "Tudo" }[c.situacao];
     const escolhido = (sel) => $(sel).selectedOptions[0]?.textContent || "";
@@ -2121,7 +2195,7 @@
       c.condicao && `Tipo: ${escolhido("#c-condicao")}`, c.forma && `Forma: ${escolhido("#c-forma")}`,
       c.cartao && `Cartão: ${escolhido("#c-cartao")}`, c.busca && `Busca: "${c.busca}"`,
     ].filter(Boolean).join(" · ");
-    const { doc, y } = novoPDF(titulo, `${situacao} · ${semMes ? "Todos os meses" : nomeMes(c.ano, c.mes)}`, filtros);
+    const { doc, y } = novoPDF(titulo, `${situacao} · ${semFaixa ? "Todos os meses" : c.periodo === "mes" && c.porData === "vencimento" ? nomeMes(c.ano, c.mes) : txtPeriodo.charAt(0).toUpperCase() + txtPeriodo.slice(1)}`, filtros);
 
     const total = (tipo) => soma(c.parcelas.filter((p) => lancDe(p).tipo === tipo), valorEfetivo);
     const pagar = total("despesa"), receber = total("receita");
@@ -2154,7 +2228,7 @@
         if (d.column.index === 4 && linhas[d.row.index].vencida) d.cell.styles.textColor = PDF.vermelho;
       },
     });
-    const sufixo = semMes ? "todos-os-meses" : `${c.ano}-${pad(c.mes)}`;
+    const sufixo = semFaixa ? "todos-os-meses" : c.periodo === "mes" ? `${c.ano}-${pad(c.mes)}` : `${c.de || "inicio"}_a_${c.ate || "fim"}`;
     salvarPDF(doc, `contas_${{ despesa: "pagar", receita: "receber", tudo: "tudo" }[c.lado]}_${c.situacao}_${sufixo}.pdf`);
     toast("PDF baixado.");
   }

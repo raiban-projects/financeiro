@@ -303,11 +303,14 @@ lançou (mercado, gasolina) não entra, então deixe uma folga.
 
 ### Baixa em lote
 
-Em **Contas**, toque em **Selecionar** e marque as parcelas (ou **Marcar todas
-da lista**, que respeita os filtros). **Dar baixa** pede a data e a forma de
-pagamento e baixa todas de uma vez, cada uma com o próprio valor. Faturas de
-cartão não entram na seleção: elas se pagam inteiras, tocando na fatura. Se
-errar, dá pra desfazer a baixa de cada parcela normalmente.
+Em **Contas**, toque em **Selecionar** e marque as contas e as **faturas** (ou
+**Marcar todas da lista**, que respeita os filtros). A barra de baixo mostra
+quantas estão marcadas e o **total**. **Dar baixa** pede a data e a forma de
+pagamento e baixa todas de uma vez: cada conta com o próprio valor e cada fatura
+inteira. Se errar, dá pra desfazer a baixa normalmente.
+
+Pra ver quanto dão todas as faturas juntas: **Filtros → Cartão → Só faturas** e
+**Todos os meses** (ou um período). O total aparece em cima da lista.
 
 ### Lançar de novo
 
@@ -324,8 +327,13 @@ do total em aberto e baixado a receber e a pagar. Também dá pra filtrar por
 **categoria** e **buscar** texto na descrição, na pessoa ou na observação (sem
 diferenciar maiúscula, minúscula ou acento). Também há filtro por **tipo de
 conta** (à vista, parcelado ou fixo), **forma de pagamento** e **cartão** (um
-cartão específico ou "Fora do cartão"). Os filtros se combinam: por exemplo,
-Fixo + Todos os meses mostra todas as contas fixas. Com esses filtros, as
+cartão específico, "Só faturas" ou "Fora do cartão"). Os filtros se combinam: por exemplo,
+Fixo + Todos os meses mostra todas as contas fixas.
+
+O **período** pode ser um mês, todos os meses ou **entre duas datas** (De e
+Até, as duas incluídas; dá pra preencher só uma). Em **Data usada**, escolha se
+o período vale pelo **vencimento** ou pela **data de lançamento** (o dia em que
+você lançou a conta no app). Cada conta da lista mostra as duas datas. Com esses filtros, as
 compras do cartão aparecem uma a uma em vez de agrupadas na fatura; só o filtro
 de cartão sozinho mantém as faturas.
 

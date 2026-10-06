@@ -1928,11 +1928,12 @@
 
     $("#r-titulo-evolucao").textContent = r.periodo === "sempre" ? "Receitas e despesas ano a ano" : `Receitas e despesas mês a mês em ${r.ano}`;
     desenharGrafico(doAno, r.periodo === "sempre");
+    r.ultimo.grafico = { titulo: $("#r-titulo-evolucao").textContent, ...seriesGrafico(doAno, r.periodo === "sempre") };
   }
 
   /** Barras de receitas e despesas: por mês do ano, ou por ano (porAno = true). */
-  function desenharGrafico(parcelas, porAno = false) {
-    if (!window.Chart) return;
+  /** Receitas e despesas somadas por mês do ano, ou por ano (porAno = true). */
+  function seriesGrafico(parcelas, porAno = false) {
     let rotulos, indice;
     if (porAno) {
       const anos = [...new Set(parcelas.map((p) => p.vencimento.slice(0, 4)))].sort();
@@ -1947,6 +1948,11 @@
       const i = indice(p);
       if (lancDe(p).tipo === "receita") rec[i] += valorEfetivo(p); else desp[i] += valorEfetivo(p);
     }
+    return { rotulos, rec, desp };
+  }
+  function desenharGrafico(parcelas, porAno = false) {
+    if (!window.Chart) return;
+    const { rotulos, rec, desp } = seriesGrafico(parcelas, porAno);
     const css = getComputedStyle(document.documentElement);
     const cor = (v) => css.getPropertyValue(v).trim();
     const dados = {
@@ -2063,6 +2069,39 @@
     }
     baixarArquivo(nome, doc.output("arraybuffer"), "application/pdf");
   }
+  /** Gráfico de barras de receitas e despesas (o mesmo da tela de Relatórios), desenhado direto no PDF. */
+  function graficoPDF(doc, y, g) {
+    const maior = g ? Math.max(...g.rec, ...g.desp) : 0;
+    if (!(maior > 0)) return y - 10;
+    const L = doc.internal.pageSize.getWidth(), A = doc.internal.pageSize.getHeight(), M = PDF.margem, altura = 42;
+    if (y + altura + 22 > A - 14) { doc.addPage(); y = 20; }
+    y = tituloPDF(doc, y, g.titulo);
+    // legenda
+    doc.setFont("helvetica", "normal").setFontSize(8).setTextColor(...PDF.cinza);
+    doc.setFillColor(...PDF.serieVerde).roundedRect(M, y + 2, 2.6, 2.6, 0.6, 0.6, "F"); doc.text("Receitas", M + 4, y + 4.3);
+    doc.setFillColor(...PDF.laranja).roundedRect(M + 22, y + 2, 2.6, 2.6, 0.6, 0.6, "F"); doc.text("Despesas", M + 26, y + 4.3);
+    // escala "redonda" com 4 divisões
+    const bruto = maior / 4, pot = 10 ** Math.floor(Math.log10(bruto)), passo = [1, 2, 2.5, 5, 10].map((k) => k * pot).find((v) => v >= bruto);
+    const topo = passo * 4, x0 = M + 17, largura = L - M - x0, yTopo = y + 9, yBase = yTopo + altura;
+    const rotuloEixo = (v) => v >= 1000 ? `${(v / 1000).toLocaleString("pt-BR")} mil` : v.toLocaleString("pt-BR");
+    doc.setFontSize(7).setDrawColor(...PDF.linha).setLineWidth(0.2);
+    for (let i = 0; i <= 4; i++) {
+      const yy = yBase - (altura * i) / 4;
+      doc.line(x0, yy, x0 + largura, yy);
+      doc.text(rotuloEixo(passo * i), x0 - 2, yy + 0.9, { align: "right" });
+    }
+    const n = g.rotulos.length, grupo = largura / n, barra = Math.min(6, grupo * 0.3);
+    g.rotulos.forEach((rotulo, i) => {
+      const centro = x0 + grupo * (i + 0.5);
+      [[g.rec[i], PDF.serieVerde, centro - barra - 0.4], [g.desp[i], PDF.laranja, centro + 0.4]].forEach(([v, cor, x]) => {
+        if (!(v > 0)) return;
+        const h2 = Math.max((altura * v) / topo, 0.4);
+        doc.setFillColor(...cor).rect(x, yBase - h2, barra, h2, "F");
+      });
+      doc.text(String(rotulo), centro, yBase + 3.5, { align: "center" });
+    });
+    return yBase + 5;
+  }
   function descricaoPDF(p) {
     const l = lancDe(p), rotulo = rotuloParcela(p);
     return textoPDF((l.descricao || estado.catPorId.get(l.categoria_id)?.nome || "") + (rotulo ? ` (${rotulo})` : ""));
@@ -2148,6 +2187,7 @@
         doc.setFillColor(...(receita ? PDF.serieVerde : PDF.laranja)).roundedRect(d.cell.x + 2, d.cell.y + d.cell.height / 2 - 1.2, Math.max(w, 0.8), 2.4, 1, 1, "F");
       },
     });
+    fim = graficoPDF(doc, fim + 10, u.grafico);
     if (r.periodo === "mensal") {
       // A lista só entra no relatório de um mês; no ano ou no "Sempre" daria páginas demais.
       const doTipo = u.doPeriodo.filter((p) => lancDe(p).tipo === r.tipo).sort((a, b) => a.vencimento.localeCompare(b.vencimento) || a.id - b.id);

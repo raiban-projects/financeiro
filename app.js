@@ -2061,13 +2061,30 @@
     });
     return doc.lastAutoTable.finalY;
   }
-  function salvarPDF(doc, nome) {
+  async function salvarPDF(doc, nome) {
     const n = doc.getNumberOfPages(), L = doc.internal.pageSize.getWidth(), A = doc.internal.pageSize.getHeight();
     for (let i = 1; i <= n; i++) {
       doc.setPage(i).setFont("helvetica", "normal").setFontSize(8).setTextColor(...PDF.cinza);
       doc.text(`Página ${i} de ${n}`, L - PDF.margem, A - 8, { align: "right" });
     }
-    baixarArquivo(nome, doc.output("arraybuffer"), "application/pdf");
+    const dados = doc.output("arraybuffer");
+    // No iPhone/iPad, "baixar" só abre o PDF na tela. Lá o app abre direto o menu de
+    // compartilhar, que tem "Salvar em Arquivos", WhatsApp, e-mail etc.
+    const noIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    if (noIOS && navigator.canShare) {
+      try {
+        const arquivo = new File([dados], nome, { type: "application/pdf" });
+        if (navigator.canShare({ files: [arquivo] })) {
+          await navigator.share({ files: [arquivo] });
+          return;
+        }
+      } catch (e) {
+        if (e.name === "AbortError") return; // fechou o menu sem escolher: não faz mais nada
+        console.error(e);                    // qualquer outro problema: cai no jeito antigo, abaixo
+      }
+    }
+    baixarArquivo(nome, dados, "application/pdf");
+    toast("PDF baixado.");
   }
   /** Gráfico de barras de receitas e despesas (o mesmo da tela de Relatórios), desenhado direto no PDF. */
   function graficoPDF(doc, y, g) {
@@ -2155,8 +2172,7 @@
       },
     });
     const sufixo = semMes ? "todos-os-meses" : `${c.ano}-${pad(c.mes)}`;
-    salvarPDF(doc, `contas_${{ despesa: "pagar", receita: "receber", tudo: "tudo" }[c.lado]}_${c.situacao}_${sufixo}.pdf`);
-    toast("PDF baixado.");
+    await salvarPDF(doc, `contas_${{ despesa: "pagar", receita: "receber", tudo: "tudo" }[c.lado]}_${c.situacao}_${sufixo}.pdf`);
   }
 
   /** PDF do relatório: resumo, total por categoria e, no mensal, os lançamentos do mês. */
@@ -2201,8 +2217,7 @@
       });
     }
     const sufixo = r.periodo === "mensal" ? `${r.ano}-${pad(r.mes)}` : r.periodo === "anual" ? `${r.ano}` : "sempre";
-    salvarPDF(doc, `relatorio_${r.tipo}s_${r.situacao}_${sufixo}.pdf`);
-    toast("PDF baixado.");
+    await salvarPDF(doc, `relatorio_${r.tipo}s_${r.situacao}_${sufixo}.pdf`);
   }
 
   // Redesenha o gráfico se o celular/PC trocar entre tema claro e escuro.

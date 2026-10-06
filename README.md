@@ -415,9 +415,5 @@ fatura, e uma conta paga com atraso continua no mês em que venceu.
   Separador `;`, vírgula decimal e acentos corretos, pra abrir direto no Excel
   ou no LibreOffice Calc (que é grátis, caso você não tenha o Office em casa).
 
-No **iPhone e iPad**, o Exportar PDF abre direto o menu de compartilhar: dali
-dá pra **Salvar em Arquivos** ou mandar por WhatsApp e e-mail. No PC e no
-Android, o arquivo é baixado normalmente.
-
 O gerador de PDF só é baixado na hora de exportar. Emoji e outros símbolos fora
 do alfabeto latino não aparecem no PDF.

@@ -408,7 +408,8 @@ fatura, e uma conta paga com atraso continua no mês em que venceu.
 - **Contas → Exportar PDF:** a lista que está na tela, com os filtros aplicados e
   os totais a pagar e a receber. Cada fatura de cartão vira uma linha.
 - **Relatórios → Exportar PDF:** receitas, despesas e saldo do período e o total
-  por categoria. No relatório de um **mês**, traz também os lançamentos; no ano
+  por categoria, com o gráfico de receitas e despesas (mês a mês ou ano a ano).
+  No relatório de um **mês**, traz também os lançamentos; no ano
   e no "Sempre", só o resumo, pra não virar dezenas de páginas.
 - **Cadastros → Seus dados → Baixar planilha (CSV):** tudo, linha por linha.
   Separador `;`, vírgula decimal e acentos corretos, pra abrir direto no Excel

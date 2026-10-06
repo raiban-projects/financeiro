@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=2026100605">
+  <link rel="stylesheet" href="style.css?v=2026100606">
 </head>
 <body>
 
@@ -234,7 +234,12 @@
         <summary>Filtros <span class="filtros-qtd" id="c-filtros-qtd"></span></summary>
         <div class="grade-campos">
           <label class="campo"><span>Período</span>
-            <select id="c-periodo"><option value="mes">Um mês</option><option value="todos">Todos os meses</option></select>
+            <select id="c-periodo"><option value="mes">Um mês</option><option value="intervalo">Entre duas datas</option><option value="todos">Todos os meses</option></select>
+          </label>
+          <label class="campo" id="c-de-wrap" hidden><span>De</span><input type="date" id="c-de"></label>
+          <label class="campo" id="c-ate-wrap" hidden><span>Até</span><input type="date" id="c-ate"></label>
+          <label class="campo" id="c-pordata-wrap"><span>Data usada</span>
+            <select id="c-pordata"><option value="vencimento">Vencimento</option><option value="lancamento">Data de lançamento</option></select>
           </label>
           <label class="campo"><span>Onde / quem</span><select id="c-pessoa"></select></label>
           <label class="campo"><span>Categoria</span><select id="c-categoria"></select></label>
@@ -263,7 +268,7 @@
       <ul id="lista-contas" class="lista"></ul>
       <div class="barra-selecao" id="c-barra" hidden>
         <div class="barra-info">
-          <strong id="c-sel-info">Toque nas parcelas pra selecionar</strong>
+          <strong id="c-sel-info">Toque nas contas e faturas pra selecionar</strong>
           <button type="button" class="link" id="c-sel-todas">Marcar todas da lista</button>
         </div>
         <div class="barra-acoes">
@@ -535,7 +540,7 @@
       <label class="campo"><span>Data</span><input type="date" id="ml-data" required></label>
       <label class="campo"><span>Forma de pagamento usada</span><select id="ml-forma"></select></label>
     </div>
-    <p class="dica">Cada parcela é baixada com o próprio valor. Se alguma teve juros ou desconto, dê baixa nela separadamente.</p>
+    <p class="dica">Cada conta é baixada com o próprio valor, e cada fatura é paga inteira. Se alguma teve juros ou desconto, dê baixa nela separadamente.</p>
     <div class="modal-acoes">
       <span class="espaco"></span>
       <button type="button" class="btn" data-fechar>Cancelar</button>
@@ -577,6 +582,6 @@
 <script src="vendor/supabase-2.117.2.js"></script>
 <script src="vendor/chart-4.5.1.umd.min.js"></script>
 <script src="config.js"></script>
-<script src="app.js?v=2026100605"></script>
+<script src="app.js?v=2026100606"></script>
 </body>
 </html>

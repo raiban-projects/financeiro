@@ -15,7 +15,7 @@ se fosse um aplicativo.
 | `schema.sql` | Cria as tabelas num projeto Supabase **novo** (roda uma vez só) |
 | `migracoes/` | Atualizações do banco pra quem já usa o app (veja "Atualizar o banco") |
 | `manifest.json` + `icons/` | Permitem instalar o app na tela inicial do celular |
-| `vendor/` | Cópias oficiais das bibliotecas Supabase e Chart.js (o site não carrega scripts de fora) |
+| `vendor/` | Cópias oficiais das bibliotecas Supabase, Chart.js e jsPDF (o site não carrega scripts de fora) |
 
 ---
 
@@ -118,7 +118,7 @@ então não precisa digitar a senha toda vez.
 - **Política de segurança na página (CSP).** O site só executa scripts dele
   mesmo e só conversa com o Supabase. Script injetado, script de outro site ou
   envio de dados pra fora são bloqueados pelo navegador.
-- **Sem bibliotecas de fora.** Supabase e Chart.js estão na pasta `vendor/`,
+- **Sem bibliotecas de fora.** Supabase, Chart.js e jsPDF estão na pasta `vendor/`,
   copiadas do pacote oficial do npm (assinatura conferida).
 - **Texto digitado nunca vira código.** Uma descrição com código malicioso
   aparece na tela como texto comum.
@@ -258,10 +258,10 @@ O app funciona como um sistema de **contas a pagar e a receber**:
   **onde/quem**, **categoria**, **tipo de conta**, **forma de pagamento**,
   **cartão** e **busca** por texto (veja abaixo). Toque num item
   pra dar baixa, desfazer, editar, excluir ou lançar de novo. **Selecionar** dá
-  baixa em várias de uma vez. Exporta CSV.
+  baixa em várias de uma vez. Exporta PDF.
 - **Relatórios:** por **mês**, **ano** ou **sempre**, despesas ou receitas, com o
   mesmo filtro de situação; total por categoria e gráfico (mês a mês, ou ano a ano
-  no "Sempre"). Exporta CSV.
+  no "Sempre"). Exporta PDF.
 - **Cadastros:** categorias, cartões (com limite), formas de pagamento, backup e
   sua conta (Trocar senha e Sair).
 
@@ -403,7 +403,16 @@ próximas". Pra parar (cancelou a assinatura), exclua a parcela escolhendo
 Os totais usam a **data de vencimento**: compra no cartão entra no mês da
 fatura, e uma conta paga com atraso continua no mês em que venceu.
 
-### CSV
+### Exportar
 
-Separador `;`, vírgula decimal e acentos corretos, pra abrir direto no Excel ou
-no LibreOffice Calc (que é grátis, caso você não tenha o Office em casa).
+- **Contas → Exportar PDF:** a lista que está na tela, com os filtros aplicados e
+  os totais a pagar e a receber. Cada fatura de cartão vira uma linha.
+- **Relatórios → Exportar PDF:** receitas, despesas e saldo do período e o total
+  por categoria. No relatório de um **mês**, traz também os lançamentos; no ano
+  e no "Sempre", só o resumo, pra não virar dezenas de páginas.
+- **Cadastros → Seus dados → Baixar planilha (CSV):** tudo, linha por linha.
+  Separador `;`, vírgula decimal e acentos corretos, pra abrir direto no Excel
+  ou no LibreOffice Calc (que é grátis, caso você não tenha o Office em casa).
+
+O gerador de PDF só é baixado na hora de exportar. Emoji e outros símbolos fora
+do alfabeto latino não aparecem no PDF.

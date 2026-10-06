@@ -1781,12 +1781,8 @@
     }
   }
 
-  $("#btn-csv-contas").addEventListener("click", () => {
-    const c = estado.contas;
-    if (!c.parcelas?.length) { toast("Não há nada nesta lista pra exportar.", true); return; }
-    const sufixo = c.situacao === "atraso" ? "em-atraso" : `${c.ano}-${pad(c.mes)}`;
-    baixarCSV(`${c.lado === "despesa" ? "pagar" : "receber"}_${c.situacao}_${sufixo}.csv`, linhasCSV(c.parcelas));
-  });
+  $("#btn-pdf-contas").addEventListener("click", (ev) => acao(ev.currentTarget, pdfContas));
+
 
   function linhasCSV(parcelas) {
     const cab = ["Vencimento", "Tipo", "Descrição", "Categoria", "Onde / quem", "Forma de pagamento", "Cartão",
@@ -1980,18 +1976,194 @@
     estado.grafico = new Chart($("#r-grafico"), { type: "bar", data: dados, options: opcoes });
   }
 
-  $("#btn-csv-relatorio").addEventListener("click", () => {
-    const u = estado.rel.ultimo;
-    if (!u) return;
-    const r = estado.rel;
+  $("#btn-pdf-relatorio").addEventListener("click", (ev) => acao(ev.currentTarget, pdfRelatorio));
+
+  // ---------------------------------------------------------------------------
+  // Exportar PDF (Contas e Relatórios). A biblioteca só é baixada na hora de
+  // exportar, pra não pesar na abertura do app.
+  // ---------------------------------------------------------------------------
+  let pdfPronto = null;
+  function carregarScript(src) {
+    return new Promise((ok, falha) => {
+      const s = document.createElement("script");
+      s.src = src;
+      s.onload = ok;
+      s.onerror = () => { s.remove(); falha(new Error("Não deu pra carregar o gerador de PDF. Confira a internet e tente de novo.")); };
+      document.head.append(s);
+    });
+  }
+  function carregarPDF() {
+    if (!pdfPronto) {
+      pdfPronto = carregarScript("vendor/jspdf-4.2.1.umd.min.js")
+        .then(() => carregarScript("vendor/jspdf-autotable-5.0.8.min.js"))
+        .catch((e) => { pdfPronto = null; throw e; });
+    }
+    return pdfPronto;
+  }
+
+  const PDF = {
+    margem: 14,
+    tinta: [22, 50, 79], texto: [21, 33, 43], cinza: [105, 118, 128], linha: [217, 224, 222],
+    verde: [13, 117, 83], vermelho: [180, 64, 44], fundo: [243, 246, 245], laranja: [235, 104, 52], serieVerde: [27, 175, 122],
+  };
+  /** As fontes padrão do PDF só têm os caracteres latinos: troca os parecidos e tira o resto (emoji etc.). */
+  function textoPDF(t) {
+    return String(t ?? "").replace(/[“”„]/g, '"').replace(/[‘’]/g, "'").replace(/[–—−]/g, "-").replace(/…/g, "...")
+      .replace(/[^\x20-\x7E -ÿ]/g, "").replace(/\s+/g, " ").trim();
+  }
+  function dataPDF(iso) { const [a, m, d] = iso.split("-"); return `${d}/${m}/${a.slice(2)}`; }
+  function novoPDF(titulo, sub, filtros) {
+    const doc = new window.jspdf.jsPDF({ unit: "mm", format: "a4" });
+    const L = doc.internal.pageSize.getWidth(), M = PDF.margem;
+    doc.setFont("helvetica", "normal").setFontSize(8).setTextColor(...PDF.cinza);
+    doc.text("Controle Financeiro", M, 13);
+    doc.text(`Gerado em ${fmtData(hojeISO())}`, L - M, 13, { align: "right" });
+    doc.setFont("helvetica", "bold").setFontSize(16).setTextColor(...PDF.tinta).text(textoPDF(titulo), M, 21);
+    doc.setFont("helvetica", "normal").setFontSize(10).setTextColor(...PDF.texto).text(textoPDF(sub), M, 27);
+    let y = 27;
+    if (filtros) {
+      doc.setFontSize(8.5).setTextColor(...PDF.cinza);
+      const linhas = doc.splitTextToSize(textoPDF("Filtros: " + filtros), L - 2 * M);
+      doc.text(linhas, M, y + 5);
+      y += 5 + (linhas.length - 1) * 3.8;
+    }
+    doc.setDrawColor(...PDF.linha).setLineWidth(0.3).line(M, y + 3, L - M, y + 3);
+    return { doc, y: y + 8 };
+  }
+  function caixasPDF(doc, y, itens) {
+    const L = doc.internal.pageSize.getWidth(), M = PDF.margem, vao = 4, w = (L - 2 * M - vao * (itens.length - 1)) / itens.length;
+    itens.forEach((it, i) => {
+      const x = M + i * (w + vao);
+      doc.setFillColor(...PDF.fundo).roundedRect(x, y, w, 15, 1.5, 1.5, "F");
+      doc.setFont("helvetica", "normal").setFontSize(8).setTextColor(...PDF.cinza).text(it.rotulo, x + 3.5, y + 5.5);
+      doc.setFont("helvetica", "bold").setFontSize(12).setTextColor(...(it.cor || PDF.texto)).text(it.valor, x + 3.5, y + 11.5);
+    });
+    return y + 20;
+  }
+  function tituloPDF(doc, y, txt) {
+    doc.setFont("helvetica", "bold").setFontSize(10.5).setTextColor(...PDF.tinta).text(textoPDF(txt), PDF.margem, y);
+    return y + 3;
+  }
+  function tabelaPDF(doc, opcoes) {
+    doc.autoTable({
+      theme: "plain", margin: { left: PDF.margem, right: PDF.margem, bottom: 14 },
+      styles: { font: "helvetica", fontSize: 8.5, cellPadding: { top: 1.6, bottom: 1.6, left: 1.5, right: 1.5 }, textColor: PDF.texto,
+        lineColor: PDF.linha, lineWidth: { bottom: 0.2 }, overflow: "ellipsize" },
+      headStyles: { fontStyle: "bold", textColor: PDF.cinza, fontSize: 7.5, lineWidth: { bottom: 0.4 } },
+      footStyles: { fontStyle: "bold", lineWidth: { top: 0.4 } },
+      ...opcoes,
+    });
+    return doc.lastAutoTable.finalY;
+  }
+  function salvarPDF(doc, nome) {
+    const n = doc.getNumberOfPages(), L = doc.internal.pageSize.getWidth(), A = doc.internal.pageSize.getHeight();
+    for (let i = 1; i <= n; i++) {
+      doc.setPage(i).setFont("helvetica", "normal").setFontSize(8).setTextColor(...PDF.cinza);
+      doc.text(`Página ${i} de ${n}`, L - PDF.margem, A - 8, { align: "right" });
+    }
+    baixarArquivo(nome, doc.output("arraybuffer"), "application/pdf");
+  }
+  function descricaoPDF(p) {
+    const l = lancDe(p), rotulo = rotuloParcela(p);
+    return textoPDF((l.descricao || estado.catPorId.get(l.categoria_id)?.nome || "") + (rotulo ? ` (${rotulo})` : ""));
+  }
+
+  /** PDF da lista de Contas, do jeito que está na tela (com os filtros). */
+  async function pdfContas() {
+    const c = estado.contas;
+    if (!c.entradas?.length) { toast("Não há nada nesta lista pra exportar.", true); return; }
+    await carregarPDF();
+    const semMes = c.periodo === "todos" || c.situacao === "atraso";
+    const titulo = { despesa: "Contas a pagar", receita: "Contas a receber", tudo: "Contas a pagar e a receber" }[c.lado];
+    const situacao = { aberto: "Em aberto", atraso: "Em atraso", baixado: $("#c-rotulo-baixado").textContent, tudo: "Tudo" }[c.situacao];
+    const escolhido = (sel) => $(sel).selectedOptions[0]?.textContent || "";
+    const filtros = [
+      c.pessoa && `Onde / quem: ${escolhido("#c-pessoa")}`, c.categoria && `Categoria: ${escolhido("#c-categoria")}`,
+      c.condicao && `Tipo: ${escolhido("#c-condicao")}`, c.forma && `Forma: ${escolhido("#c-forma")}`,
+      c.cartao && `Cartão: ${escolhido("#c-cartao")}`, c.busca && `Busca: "${c.busca}"`,
+    ].filter(Boolean).join(" · ");
+    const { doc, y } = novoPDF(titulo, `${situacao} · ${semMes ? "Todos os meses" : nomeMes(c.ano, c.mes)}`, filtros);
+
+    const total = (tipo) => soma(c.parcelas.filter((p) => lancDe(p).tipo === tipo), valorEfetivo);
+    const pagar = total("despesa"), receber = total("receita");
+    const rotulos = { aberto: ["A pagar", "A receber"], atraso: ["A pagar", "A receber"], baixado: ["Pago", "Recebido"], tudo: ["Despesas", "Receitas"] }[c.situacao];
+    const caixas = [{ rotulo: "Itens", valor: String(c.entradas.length) }];
+    if (pagar) caixas.push({ rotulo: rotulos[0], valor: fmtBRL(pagar), cor: PDF.vermelho });
+    if (receber) caixas.push({ rotulo: rotulos[1], valor: fmtBRL(receber), cor: PDF.verde });
+    const y2 = caixasPDF(doc, y, caixas);
+
+    const linhas = c.entradas.map((e) => {
+      if (e.tipo === "fatura") {
+        return { tipo: "despesa", vencida: situacaoFatura(e).classe === "st-vencida", celulas: [dataPDF(e.vencimento),
+          textoPDF(`Fatura ${e.cartao.nome} (${e.parcelas.length} ${plural(e.parcelas.length, "lançamento", "lançamentos")})`),
+          "Cartão", "", textoPDF(situacaoFatura(e).texto.replace(/^Fechada\. /, "")), `- ${fmtNumero(e.valor)}`] };
+      }
+      const p = e.p, l = lancDe(p), st = situacaoParcela(p);
+      return { tipo: l.tipo, vencida: st.classe === "st-vencida", celulas: [dataPDF(p.vencimento), descricaoPDF(p),
+        textoPDF(estado.catPorId.get(l.categoria_id)?.nome), textoPDF(l.pessoa), textoPDF(st.texto),
+        `${l.tipo === "receita" ? "+" : "-"} ${fmtNumero(valorEfetivo(p))}`] };
+    });
+    tabelaPDF(doc, {
+      startY: y2,
+      head: [["Venc.", "Descrição", "Categoria", "Onde / quem", "Situação", "Valor (R$)"]],
+      body: linhas.map((l) => l.celulas),
+      columnStyles: { 0: { cellWidth: 17 }, 2: { cellWidth: 28 }, 3: { cellWidth: 32 }, 4: { cellWidth: 34 }, 5: { cellWidth: 25, halign: "right", fontStyle: "bold" } },
+      didParseCell: (d) => {
+        if (d.section === "head" && d.column.index === 5) d.cell.styles.halign = "right";
+        if (d.section !== "body") return;
+        if (d.column.index === 5) d.cell.styles.textColor = linhas[d.row.index].tipo === "receita" ? PDF.verde : PDF.vermelho;
+        if (d.column.index === 4 && linhas[d.row.index].vencida) d.cell.styles.textColor = PDF.vermelho;
+      },
+    });
+    const sufixo = semMes ? "todos-os-meses" : `${c.ano}-${pad(c.mes)}`;
+    salvarPDF(doc, `contas_${{ despesa: "pagar", receita: "receber", tudo: "tudo" }[c.lado]}_${c.situacao}_${sufixo}.pdf`);
+    toast("PDF baixado.");
+  }
+
+  /** PDF do relatório: resumo, total por categoria e, no mensal, os lançamentos do mês. */
+  async function pdfRelatorio() {
+    const u = estado.rel.ultimo, r = estado.rel;
+    if (!u || !u.itens.length) { toast("Não há nada neste relatório pra exportar.", true); return; }
+    await carregarPDF();
+    const receita = r.tipo === "receita";
+    const periodo = u.periodoTxt.charAt(0).toUpperCase() + u.periodoTxt.slice(1);
+    const { doc, y } = novoPDF(`Relatório de ${receita ? "receitas" : "despesas"}`, `${periodo} · ${$("#r-situacao").selectedOptions[0].textContent}`);
+    const saldo = u.receitas - u.despesas;
+    const y2 = caixasPDF(doc, y, [
+      { rotulo: "Receitas", valor: fmtBRL(u.receitas), cor: PDF.verde },
+      { rotulo: "Despesas", valor: fmtBRL(u.despesas), cor: PDF.vermelho },
+      { rotulo: "Saldo", valor: fmtBRL(saldo), cor: saldo < 0 ? PDF.vermelho : PDF.verde },
+    ]);
+    const total = soma(u.itens, (i) => i.valor), maior = Math.max(...u.itens.map((i) => i.valor));
+    let fim = tabelaPDF(doc, {
+      startY: tituloPDF(doc, y2 + 2, `${receita ? "Receitas" : "Despesas"} por categoria`),
+      head: [["Categoria", "", "Valor (R$)", "%"]],
+      body: u.itens.map((i) => [textoPDF(i.nome), "", fmtNumero(i.valor), `${i.pct.toFixed(1).replace(".", ",")}%`]),
+      foot: [["Total", "", fmtNumero(total), "100%"]],
+      columnStyles: { 0: { cellWidth: 48 }, 2: { cellWidth: 28, halign: "right", fontStyle: "bold" }, 3: { cellWidth: 18, halign: "right", textColor: PDF.cinza } },
+      didParseCell: (d) => { if (d.section !== "body" && d.column.index >= 2) d.cell.styles.halign = "right"; },
+      didDrawCell: (d) => {
+        if (d.section !== "body" || d.column.index !== 1 || !(maior > 0)) return;
+        const w = (d.cell.width - 4) * u.itens[d.row.index].valor / maior;
+        doc.setFillColor(...(receita ? PDF.serieVerde : PDF.laranja)).roundedRect(d.cell.x + 2, d.cell.y + d.cell.height / 2 - 1.2, Math.max(w, 0.8), 2.4, 1, 1, "F");
+      },
+    });
+    if (r.periodo === "mensal") {
+      // A lista só entra no relatório de um mês; no ano ou no "Sempre" daria páginas demais.
+      const doTipo = u.doPeriodo.filter((p) => lancDe(p).tipo === r.tipo).sort((a, b) => a.vencimento.localeCompare(b.vencimento) || a.id - b.id);
+      fim = tabelaPDF(doc, {
+        startY: tituloPDF(doc, fim + 10, `Lançamentos do mês (${doTipo.length})`),
+        head: [["Venc.", "Descrição", "Categoria", "Situação", "Valor (R$)"]],
+        body: doTipo.map((p) => [dataPDF(p.vencimento), descricaoPDF(p), textoPDF(estado.catPorId.get(lancDe(p).categoria_id)?.nome),
+          textoPDF(situacaoParcela(p).texto), fmtNumero(valorEfetivo(p))]),
+        columnStyles: { 0: { cellWidth: 17 }, 2: { cellWidth: 38 }, 3: { cellWidth: 38 }, 4: { cellWidth: 25, halign: "right", fontStyle: "bold" } },
+        didParseCell: (d) => { if (d.section === "head" && d.column.index === 4) d.cell.styles.halign = "right"; },
+      });
+    }
     const sufixo = r.periodo === "mensal" ? `${r.ano}-${pad(r.mes)}` : r.periodo === "anual" ? `${r.ano}` : "sempre";
-    const linhas = [["Categoria", "Valor", "Percentual"],
-      ...u.itens.map((i) => [i.nome, fmtNumeroCSV(i.valor), `${i.pct.toFixed(1).replace(".", ",")}%`]),
-      [], ["Período", u.periodoTxt], ["Situação", $("#r-situacao").selectedOptions[0].textContent],
-      ["Receitas", fmtNumeroCSV(u.receitas)], ["Despesas", fmtNumeroCSV(u.despesas)], ["Saldo", fmtNumeroCSV(u.receitas - u.despesas)],
-      [], ...linhasCSV(u.doPeriodo)];
-    baixarCSV(`relatorio_${r.tipo}s_${r.situacao}_${sufixo}.csv`, linhas);
-  });
+    salvarPDF(doc, `relatorio_${r.tipo}s_${r.situacao}_${sufixo}.pdf`);
+    toast("PDF baixado.");
+  }
 
   // Redesenha o gráfico se o celular/PC trocar entre tema claro e escuro.
   window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {

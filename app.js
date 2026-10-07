@@ -77,7 +77,43 @@
     const v = Number(s);
     return Number.isFinite(v) ? Math.round(v * 100) / 100 : NaN;
   }
-  function valorParaCampo(v) { return Number(v).toFixed(2).replace(".", ","); }
+  function valorParaCampo(v) { return fmtNumero(Math.abs(Number(v))); }
+
+  // ---------------------------------------------------------------------------
+  // Campos de valor: preenchem da direita pra esquerda, como nos apps de banco.
+  // Digitando 1, 5, 0, 5, 0 o campo mostra 0,01 > 0,15 > 1,50 > 15,05 > 150,50.
+  // ---------------------------------------------------------------------------
+  function mascararValor(campo, ev) {
+    const bruto = campo.value;
+    // "De uma vez" = colado, arrastado, preenchido pelo navegador, ou um texto de vários caracteres que virou o campo inteiro.
+    const tipo = ev && typeof ev.inputType === "string" ? ev.inputType : "";
+    const deUmaVez = !tipo || /^insertFrom(Paste|Drop)|^insertReplacementText/.test(tipo)
+      || (tipo === "insertText" && typeof ev.data === "string" && ev.data.length > 1 && ev.data === bruto);
+    const digitado = !deUmaVez;
+    let centavos = null, negativo = false;
+    if (digitado) {
+      // Tecla a tecla: só os dígitos contam, e cada um empurra os outros pra esquerda.
+      const digitos = bruto.replace(/\D/g, "").replace(/^0+(?=\d)/, "").slice(0, 11);
+      if (digitos) centavos = parseInt(digitos, 10);
+      if (centavos === 0 && tipo.startsWith("delete")) centavos = null; // apagou o último dígito: campo vazio
+      negativo = bruto.includes("-");
+    } else {
+      // Colado ou preenchido de uma vez ("150,5", "1.250,00", "200"): lê como valor inteiro.
+      const v = lerValor(bruto);
+      if (Number.isFinite(v)) { centavos = Math.round(Math.abs(v) * 100); negativo = v < 0; }
+    }
+    campo.value = centavos == null ? "" : fmtNumero(centavos / 100);
+    // Campo que aceita negativo (saldo): o sinal fica na caixinha ao lado, porque o teclado numérico do celular não tem "-".
+    if (campo.dataset.moeda === "negativo" && (negativo || !digitado)) {
+      const caixa = $("#i-saldo-negativo");
+      if (digitado) caixa.checked = !caixa.checked; else caixa.checked = negativo;
+    }
+    if (document.activeElement === campo) { try { campo.setSelectionRange(campo.value.length, campo.value.length); } catch (e) { /* tipo de campo sem seleção */ } }
+  }
+  // Na fase de captura, pra formatar antes de qualquer outro código ler o campo.
+  document.addEventListener("input", (ev) => {
+    if (ev.target instanceof HTMLInputElement && ev.target.dataset.moeda !== undefined) mascararValor(ev.target, ev);
+  }, true);
   function plural(n, s, p) { return n === 1 ? s : p; }
   /** Texto pra comparar: sem acento, sem espaços nas pontas, minúsculo ("Mãe " = "mae"). */
   function chaveTexto(t) { return String(t ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase(); }
@@ -715,6 +751,7 @@
       ? "O app ajusta o saldo pra bater com o do banco (tarifa, rendimento...). Nenhum lançamento é alterado."
       : "Daqui pra frente, o que você receber soma e o que pagar subtrai. Pode ser negativo, se estiver no cheque especial.";
     $("#i-saldo-valor").value = "";
+    $("#i-saldo-negativo").checked = false;
     if (acertando) $("#i-saldo-valor").focus();
   }
 
@@ -815,8 +852,9 @@
   $("#i-saldo-cancelar").addEventListener("click", () => { estado.editandoSaldo = false; carregarInicio(); });
   $("#i-saldo-form").addEventListener("submit", (ev) => {
     ev.preventDefault();
-    const valor = lerValor($("#i-saldo-valor").value);
-    if (!Number.isFinite(valor) || Math.abs(valor) >= 100000000) { toast("Digite o saldo, por exemplo 1.250,00 ou -300,00.", true); return; }
+    const lido = lerValor($("#i-saldo-valor").value);
+    const valor = $("#i-saldo-negativo").checked ? -Math.abs(lido) : lido;
+    if (!Number.isFinite(valor) || Math.abs(valor) >= 100000000) { toast("Digite o saldo. Se estiver negativo, marque \"Saldo negativo\".", true); return; }
     const acertando = estado.editandoSaldo;
     acao($("#i-saldo-salvar"), async () => {
       await definirSaldo(valor);

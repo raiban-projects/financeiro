@@ -265,6 +265,15 @@ O app funciona como um sistema de **contas a pagar e a receber**:
 - **Cadastros:** categorias, cartões (com limite), formas de pagamento, backup e
   sua conta (Trocar senha e Sair).
 
+### Digitar valores
+
+Os campos de valor preenchem da direita pra esquerda, como nos apps de banco:
+pra R$ 150,50, digite **1 5 0 5 0** e o campo vai mostrando 0,01, 0,15, 1,50,
+15,05 e 150,50. A vírgula e o ponto de milhar entram sozinhos, e apagar tira um
+dígito por vez. Colar um valor pronto ("150,50") também funciona. No saldo, que
+pode ser negativo, marque **Saldo negativo** (o teclado numérico do celular não
+tem o sinal de menos).
+
 ### Saldo em conta
 
 Na primeira vez, o Início pergunta **quanto você tem na conta hoje**. Daí em

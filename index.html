@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=2026100606">
+  <link rel="stylesheet" href="style.css?v=2026100701">
 </head>
 <body>
 
@@ -75,10 +75,11 @@
         <form id="i-saldo-form" class="saldo-form" hidden novalidate>
           <h2 class="titulo-secao" id="i-saldo-form-titulo">Quanto você tem na conta hoje?</h2>
           <div class="linha-form">
-            <input id="i-saldo-valor" inputmode="decimal" placeholder="0,00" aria-label="Saldo atual em R$" autocomplete="off">
+            <input id="i-saldo-valor" inputmode="numeric" data-moeda="negativo" placeholder="0,00" aria-label="Saldo atual em R$" autocomplete="off">
             <button type="button" class="btn" id="i-saldo-cancelar" hidden>Cancelar</button>
             <button type="submit" class="btn btn-primario" id="i-saldo-salvar">Salvar saldo</button>
           </div>
+          <label class="check"><input type="checkbox" id="i-saldo-negativo"> <span>Saldo negativo (cheque especial)</span></label>
           <p class="dica" id="i-saldo-form-dica">Daqui pra frente, o que você receber soma e o que pagar subtrai. Pode ser negativo, se estiver no cheque especial.</p>
         </form>
         <div id="i-saldo-info" hidden>
@@ -138,7 +139,7 @@
 
         <label class="valor-grande" data-tipo="despesa">
           <span class="valor-prefixo">R$</span>
-          <input id="l-valor" inputmode="decimal" placeholder="0,00" autocomplete="off" aria-label="Valor">
+          <input id="l-valor" inputmode="numeric" data-moeda placeholder="0,00" autocomplete="off" aria-label="Valor">
         </label>
 
         <div class="grade-campos">
@@ -341,7 +342,7 @@
               <input id="cartao-nome" maxlength="60" placeholder="Nome (ex.: Nubank)" required aria-label="Nome do cartão">
               <label class="mini">Fecha dia <input type="number" id="cartao-fecha" min="1" max="31" required inputmode="numeric"></label>
               <label class="mini">Vence dia <input type="number" id="cartao-vence" min="1" max="31" required inputmode="numeric"></label>
-              <label class="mini">Limite <input id="cartao-limite" inputmode="decimal" placeholder="opcional" autocomplete="off"></label>
+              <label class="mini">Limite <input id="cartao-limite" inputmode="numeric" data-moeda placeholder="opcional" autocomplete="off"></label>
               <button class="btn btn-primario" type="submit">Adicionar</button>
             </form>
             <ul id="lista-cartoes" class="lista-simples"></ul>
@@ -422,7 +423,7 @@
       <h3 id="mp-baixa-titulo">Dar baixa</h3>
       <div class="grade-campos">
         <label class="campo"><span>Data</span><input type="date" id="mp-b-data" required></label>
-        <label class="campo"><span>Valor (R$)</span><input id="mp-b-valor" inputmode="decimal" required></label>
+        <label class="campo"><span>Valor (R$)</span><input id="mp-b-valor" inputmode="numeric" data-moeda placeholder="0,00" autocomplete="off" required></label>
         <label class="campo campo-largo"><span>Forma de pagamento usada</span><select id="mp-b-forma"></select></label>
       </div>
       <div class="modal-acoes">
@@ -435,7 +436,7 @@
     <form id="mp-form-editar" class="bloco" hidden novalidate>
       <h3>Esta parcela</h3>
       <div class="grade-campos">
-        <label class="campo"><span>Valor (R$)</span><input id="mp-e-valor" inputmode="decimal" required></label>
+        <label class="campo"><span>Valor (R$)</span><input id="mp-e-valor" inputmode="numeric" data-moeda placeholder="0,00" autocomplete="off" required></label>
         <label class="campo"><span>Vencimento</span><input type="date" id="mp-e-venc" required></label>
       </div>
       <label class="check" id="mp-e-proximas-wrap"><input type="checkbox" id="mp-e-proximas"> <span>Usar o novo valor também nas próximas parcelas em aberto</span></label>
@@ -520,7 +521,7 @@
       <label class="campo campo-largo"><span>Nome</span><input id="mc-nome" maxlength="60" required></label>
       <label class="campo"><span>Fecha dia</span><input type="number" id="mc-fecha" min="1" max="31" inputmode="numeric" required></label>
       <label class="campo"><span>Vence dia</span><input type="number" id="mc-vence" min="1" max="31" inputmode="numeric" required></label>
-      <label class="campo campo-largo"><span>Limite (opcional)</span><input id="mc-limite" inputmode="decimal" autocomplete="off"></label>
+      <label class="campo campo-largo"><span>Limite (opcional)</span><input id="mc-limite" inputmode="numeric" data-moeda placeholder="sem limite" autocomplete="off"></label>
     </div>
     <p class="dica">Mudar o fechamento ou o vencimento vale pras próximas compras. As que já estão lançadas ficam nas faturas onde estão.</p>
     <div class="modal-acoes">
@@ -582,6 +583,6 @@
 <script src="vendor/supabase-2.117.2.js"></script>
 <script src="vendor/chart-4.5.1.umd.min.js"></script>
 <script src="config.js"></script>
-<script src="app.js?v=2026100606"></script>
+<script src="app.js?v=2026100701"></script>
 </body>
 </html>

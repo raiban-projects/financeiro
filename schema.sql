@@ -167,3 +167,15 @@ create policy "dono" on public.saldo for all to authenticated
     using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
 revoke all on table public.saldo from anon;
 grant select, insert, update, delete on table public.saldo to authenticated;
+
+-- "Alô" pro banco não pausar no plano grátis: uma tarefa agendada no GitHub chama
+-- esta função a cada 3 dias. Só devolve a hora do servidor, não toca em dado nenhum.
+create or replace function public.manter_ativo()
+returns timestamptz
+language sql
+stable
+security invoker
+set search_path = ''
+as $$ select now() $$;
+revoke all on function public.manter_ativo() from public;
+grant execute on function public.manter_ativo() to anon, authenticated;

@@ -204,6 +204,7 @@ Quando uma versão nova muda a estrutura do banco, ela vem com um arquivo na pas
 | `2026-10-contas-a-pagar-receber.sql` | Troca o modelo pra contas a pagar e receber. **Apaga os lançamentos da versão anterior**; mantém categorias e formas de pagamento. |
 | `2026-10-saldo.sql` | Cria a tabela do saldo em conta. Não apaga nada. |
 | `2026-10-limite-cartao.sql` | Acrescenta o limite (opcional) ao cartão. Não apaga nada. |
+| `2026-10-manter-ativo.sql` | Cria a função que a tarefa agendada chama pra o projeto não pausar. Não apaga nada. |
 
 Rode a migração **antes** de abrir a versão nova do app.
 
@@ -221,9 +222,17 @@ Trocar senha**. Assim só ela fica sabendo a senha.
 ## Plano gratuito do Supabase
 
 No plano grátis, o Supabase pausa projetos com pouca atividade ao longo de 7 dias.
-Usando o app no dia a dia isso não acontece; se acontecer, é só entrar no painel
-do Supabase, abrir o projeto e clicar em **Resume** (dá pra retomar em até 1 ano,
-e os dados continuam lá).
+Pra isso não acontecer, uma **tarefa agendada no GitHub** (aba **Actions**, "Manter
+o Supabase ativo") dá um "alô" no banco a cada 3 dias. Ela chama a função
+`manter_ativo()`, que só devolve a hora do servidor: não lê nem grava dado nenhum.
+
+- Se a tarefa falhar, o GitHub manda um e-mail. Normalmente é o projeto que já
+  pausou: entre no painel do Supabase, abra o projeto e clique em **Resume** (dá
+  pra retomar em até 1 ano, e os dados continuam lá).
+- O GitHub desliga tarefas agendadas de repositórios públicos que ficam **60 dias
+  sem nenhuma alteração**, e avisa por e-mail antes. Se acontecer, é só ir em
+  **Actions → Manter o Supabase ativo → Enable workflow**.
+- Pra testar na hora: **Actions → Manter o Supabase ativo → Run workflow**.
 
 ---
 

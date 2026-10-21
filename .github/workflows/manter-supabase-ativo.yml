@@ -1,0 +1,39 @@
+# Dá um "alô" no banco a cada 3 dias pra o Supabase (plano grátis) não pausar o
+# projeto por falta de uso. Chama a função manter_ativo(), que só devolve a hora
+# do servidor. Usa a chave pública (anon) que já está no config.js.
+name: Manter o Supabase ativo
+
+on:
+  schedule:
+    - cron: "37 14 */3 * *"   # dias 1, 4, 7... de cada mês, 11:37 em Brasília
+  workflow_dispatch:           # botão "Run workflow" pra testar na hora
+
+permissions:
+  contents: read
+
+jobs:
+  alo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: config.js
+          sparse-checkout-cone-mode: false
+
+      - name: Dar um alô no banco
+        run: |
+          URL=$(grep -oP 'SUPABASE_URL:\s*"\K[^"]+' config.js)
+          KEY=$(grep -oP 'SUPABASE_ANON_KEY:\s*"\K[^"]+' config.js)
+          for tentativa in 1 2 3; do
+            codigo=$(curl -sS -o resposta.txt -w '%{http_code}' -X POST "$URL/rest/v1/rpc/manter_ativo" \
+              -H "apikey: $KEY" -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" -d '{}' || echo 000)
+            if [ "$codigo" = "200" ]; then
+              echo "Banco respondeu: $(cat resposta.txt)"
+              exit 0
+            fi
+            echo "Tentativa $tentativa: HTTP $codigo $(cat resposta.txt 2>/dev/null)"
+            sleep 30
+          done
+          echo "O banco não respondeu. Se o projeto já estiver pausado, entre no painel do Supabase e clique em Resume."
+          exit 1

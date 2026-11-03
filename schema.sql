@@ -168,14 +168,17 @@ create policy "dono" on public.saldo for all to authenticated
 revoke all on table public.saldo from anon;
 grant select, insert, update, delete on table public.saldo to authenticated;
 
--- "Alô" pro banco não pausar no plano grátis: uma tarefa agendada no GitHub chama
--- esta função a cada 3 dias. Só devolve a hora do servidor, não toca em dado nenhum.
-create or replace function public.manter_ativo()
-returns timestamptz
-language sql
-stable
-security invoker
-set search_path = ''
-as $$ select now() $$;
-revoke all on function public.manter_ativo() from public;
-grant execute on function public.manter_ativo() to anon, authenticated;
+-- "Alô" pro banco não pausar no plano grátis: uma tarefa agendada no GitHub grava
+-- todo dia a data e a hora nesta tabela de uma linha só. A chave pública (anon) só
+-- enxerga esta tabela, e só a linha 1: não cria outras linhas nem apaga.
+create table if not exists public.manter_ligado (
+    id  int primary key check (id = 1),
+    em  timestamptz not null default now()
+);
+alter table public.manter_ligado enable row level security;
+drop policy if exists "manter ligado" on public.manter_ligado;
+create policy "manter ligado" on public.manter_ligado for all to anon
+    using (id = 1) with check (id = 1);
+revoke all on table public.manter_ligado from anon, authenticated;
+grant select, insert, update on table public.manter_ligado to anon;
+insert into public.manter_ligado (id) values (1) on conflict (id) do update set em = now();

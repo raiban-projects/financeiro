@@ -205,6 +205,7 @@ Quando uma versão nova muda a estrutura do banco, ela vem com um arquivo na pas
 | `2026-10-saldo.sql` | Cria a tabela do saldo em conta. Não apaga nada. |
 | `2026-10-limite-cartao.sql` | Acrescenta o limite (opcional) ao cartão. Não apaga nada. |
 | `2026-10-manter-ativo.sql` | Cria a função que a tarefa agendada chama pra o projeto não pausar. Não apaga nada. |
+| `2026-11-manter-ligado.sql` | Troca o "alô" por uma gravação diária numa tabela de uma linha (só ler não bastou). Não apaga nada seu. |
 
 Rode a migração **antes** de abrir a versão nova do app.
 
@@ -223,9 +224,13 @@ Trocar senha**. Assim só ela fica sabendo a senha.
 
 No plano grátis, o Supabase pausa projetos com pouca atividade ao longo de 7 dias.
 Pra isso não acontecer, uma **tarefa agendada no GitHub** (aba **Actions**, "Manter
-o Supabase ativo") dá um "alô" no banco a cada 3 dias. Ela chama a função
-`manter_ativo()`, que só devolve a hora do servidor: não lê nem grava dado nenhum.
+o Supabase ativo") **grava todo dia** a data e a hora na tabela `manter_ligado` e lê
+de volta. É sempre a mesma linha, então não junta lixo. Só ler o banco não bastou:
+com a versão antiga, que só lia a cada 3 dias, o projeto pausou mesmo assim.
 
+- A chave pública (anon), que já está no `config.js`, só enxerga essa tabelinha e
+  só a linha 1: não cria outras linhas nem apaga, e as suas tabelas continuam
+  fechadas pra quem não está logado.
 - Se a tarefa falhar, o GitHub manda um e-mail. Normalmente é o projeto que já
   pausou: entre no painel do Supabase, abra o projeto e clique em **Resume** (dá
   pra retomar em até 1 ano, e os dados continuam lá).
